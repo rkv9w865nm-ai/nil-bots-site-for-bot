@@ -18,7 +18,7 @@ from firebase_admin import credentials, firestore
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
-PRICE_BOT_ONLY = float(os.environ.get("PRICE_BOT_ONLY", "3000"))
+PRICE_BOT_ONLY = float(os.environ.get("PRICE_BOT_ONLY", "115"))
 PRICE_SERVER_BASIC = float(os.environ.get("PRICE_SERVER_BASIC", "99"))
 PRICE_SERVER_PRO = float(os.environ.get("PRICE_SERVER_PRO", "250"))
 
