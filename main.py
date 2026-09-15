@@ -18,15 +18,27 @@ from firebase_admin import credentials, firestore
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
-PRICE_BOT_ONLY = float(os.environ.get("PRICE_BOT_ONLY", "115"))
+PRICE_BOT_ONLY = float(os.environ.get("PRICE_BOT_ONLY", "3000"))
 PRICE_SERVER_BASIC = float(os.environ.get("PRICE_SERVER_BASIC", "99"))
 PRICE_SERVER_PRO = float(os.environ.get("PRICE_SERVER_PRO", "250"))
+
+# ДОП. УСЛУГИ
+ADDONS = {
+    "support_bot": {
+        "label": "🛟 Отдельный бот тех. поддержки",
+        "price": float(os.environ.get("PRICE_ADDON_SUPPORT", "99")),
+    },
+    "priority": {
+        "label": "⚡ Приоритет к заказу",
+        "price": float(os.environ.get("PRICE_ADDON_PRIORITY", "50")),
+    },
+}
 
 SITE_URL = "https://nil-bots-site-with-bot.vercel.app/"
 SUPPORT_URL = "https://t.me/nilbots_support_bot"
 
 # ============================================
-# ИНИЦИАЛИЗАЦИЯ FIREBASE
+# FIREBASE
 # ============================================
 firebase_key_json = os.environ.get("FIREBASE_KEY_JSON")
 if firebase_key_json:
@@ -42,7 +54,7 @@ if not BOT_TOKEN:
     raise SystemExit("❌ ОШИБКА: Переменная BOT_TOKEN не задана!")
 
 # ============================================
-# ИНИЦИАЛИЗАЦИЯ БОТА
+# БОТ
 # ============================================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -50,11 +62,12 @@ router = Router()
 dp.include_router(router)
 
 # ============================================
-# СОСТОЯНИЯ (FSM)
+# СОСТОЯНИЯ
 # ============================================
 class OrderState(StatesGroup):
     choosing_package = State()
     choosing_server_tier = State()
+    choosing_addons = State()
     waiting_for_details = State()
     waiting_for_promo = State()
     confirming_order = State()
@@ -101,7 +114,7 @@ async def generate_order_number():
                 return number
 
 # ============================================
-# РАСЧЁТ ЦЕНЫ С ПРОМОКОДАМИ И СКИДКАМИ
+# РАСЧЁТ ЦЕНЫ
 # ============================================
 async def calculate_price(base_price: float, user_id: int, promo_code: str = None):
     async with aiosqlite.connect("nil_bots.db") as db:
@@ -171,8 +184,20 @@ def back_kb(callback_data: str):
         [InlineKeyboardButton(text="🔙 Назад", callback_data=callback_data)]
     ])
 
+def addons_kb(selected: list):
+    rows = []
+    for key, addon in ADDONS.items():
+        mark = "✅" if key in selected else "⬜"
+        rows.append([InlineKeyboardButton(
+            text=f"{mark} {addon['label']} (+{addon['price']:.0f}₽)",
+            callback_data=f"add_{key}"
+        )])
+    rows.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="addons_done")])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="nav_back_from_addons")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 # ============================================
-# ЭКРАНЫ (с кнопками Назад)
+# ЭКРАНЫ
 # ============================================
 async def show_package_screen(message, state, edit=False):
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -189,8 +214,8 @@ async def show_package_screen(message, state, edit=False):
 
 async def show_tiers_screen(message, state, edit=False):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚡ Базовый (99₽/мес)", callback_data="srv_basic")],
-        [InlineKeyboardButton(text="🚀 Продвинутый (250₽/мес)", callback_data="srv_pro")],
+        [InlineKeyboardButton(text=f"⚡ Базовый ({PRICE_SERVER_BASIC:.0f}₽/мес)", callback_data="srv_basic")],
+        [InlineKeyboardButton(text=f"🚀 Продвинутый ({PRICE_SERVER_PRO:.0f}₽/мес)", callback_data="srv_pro")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_package")]
     ])
     text = (
@@ -203,6 +228,21 @@ async def show_tiers_screen(message, state, edit=False):
     else:
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
     await state.set_state(OrderState.choosing_server_tier)
+
+async def show_addons_screen(message, state, edit=False):
+    data = await state.get_data()
+    selected = data.get("addons", [])
+    kb = addons_kb(selected)
+    text = (
+        "🧩 <b>Дополнительные услуги (по желанию):</b>\n\n"
+        "Нажимай на кнопки, чтобы добавить или убрать услугу.\n"
+        "Когда всё выберешь — жми «✅ Продолжить»."
+    )
+    if edit:
+        await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    else:
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await state.set_state(OrderState.choosing_addons)
 
 async def show_details_prompt(message, state, edit=False):
     kb = back_kb("nav_back_from_details")
@@ -227,7 +267,7 @@ async def show_promo_question(message, state, edit=False):
     await state.set_state(OrderState.waiting_for_promo)
 
 # ============================================
-# СТАРТ И ГЛАВНОЕ МЕНЮ
+# СТАРТ
 # ============================================
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
@@ -244,7 +284,7 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer("👋 <b>Привет!</b>\nЯ помогу тебе заказать идеального Telegram-бота.", reply_markup=main_menu(), parse_mode="HTML")
 
 # ============================================
-# НАВИГАЦИЯ (кнопки Назад)
+# НАВИГАЦИЯ
 # ============================================
 @router.callback_query(F.data == "nav_package")
 async def nav_package(call: CallbackQuery, state: FSMContext):
@@ -256,6 +296,11 @@ async def nav_tiers(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await show_tiers_screen(call.message, state, edit=True)
 
+@router.callback_query(F.data == "nav_addons")
+async def nav_addons(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await show_addons_screen(call.message, state, edit=True)
+
 @router.callback_query(F.data == "nav_details")
 async def nav_details(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -266,14 +311,19 @@ async def nav_promo(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await show_promo_question(call.message, state, edit=True)
 
-@router.callback_query(F.data == "nav_back_from_details")
-async def nav_back_from_details(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "nav_back_from_addons")
+async def nav_back_from_addons(call: CallbackQuery, state: FSMContext):
     await call.answer()
     data = await state.get_data()
     if data.get('package') == 'bot_server':
         await show_tiers_screen(call.message, state, edit=True)
     else:
         await show_package_screen(call.message, state, edit=True)
+
+@router.callback_query(F.data == "nav_back_from_details")
+async def nav_back_from_details(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await show_addons_screen(call.message, state, edit=True)
 
 @router.callback_query(F.data == "start_back_to_main")
 async def start_back_to_main(call: CallbackQuery, state: FSMContext):
@@ -300,18 +350,24 @@ async def pkg_bot_only(call: CallbackQuery, state: FSMContext):
         server_tier=None,
         server_tier_label=None,
         base_price=PRICE_BOT_ONLY,
-        service_name="Разработка бота"
+        service_name="Разработка бота",
+        addons=[],
+        addons_price=0.0,
+        addons_label=None
     )
-    await show_details_prompt(call.message, state, edit=True)
+    await show_addons_screen(call.message, state, edit=True)
 
 @router.callback_query(F.data == "pkg_bot_server", OrderState.choosing_package)
 async def pkg_bot_server(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await state.update_data(
         package="bot_server",
-        package_label="🤖+🖥 Бот + Сервер",
+        package_label="🤖+ Бот + Сервер",
         base_price=PRICE_BOT_ONLY,
-        service_name="Разработка бота"
+        service_name="Разработка бота",
+        addons=[],
+        addons_price=0.0,
+        addons_label=None
     )
     await show_tiers_screen(call.message, state, edit=True)
 
@@ -325,23 +381,57 @@ async def process_server_tier(call: CallbackQuery, state: FSMContext):
         server_price = PRICE_SERVER_BASIC
         server_name = "Хостинг (Базовый)"
         tier_key = "basic"
-        tier_label = "⚡ Базовый (99₽/мес)"
+        tier_label = f"⚡ Базовый ({PRICE_SERVER_BASIC:.0f}₽/мес)"
     else:
         server_price = PRICE_SERVER_PRO
         server_name = "Хостинг (Продвинутый)"
         tier_key = "pro"
-        tier_label = "🚀 Продвинутый (250₽/мес)"
+        tier_label = f"🚀 Продвинутый ({PRICE_SERVER_PRO:.0f}₽/мес)"
     
     await state.update_data(
         package="bot_server",
-        package_label="🤖+ Бот + Сервер",
+        package_label="🤖+🖥 Бот + Сервер",
         server_tier=tier_key,
         server_tier_label=tier_label,
         base_price=base_price + server_price,
         service_name=f"Разработка бота + {server_name}"
     )
+    await show_addons_screen(call.message, state, edit=True)
+
+# --- Переключение доп. услуг ---
+@router.callback_query(F.data.startswith("add_"), OrderState.choosing_addons)
+async def toggle_addon(call: CallbackQuery, state: FSMContext):
+    key = call.data.replace("add_", "")
+    if key not in ADDONS:
+        await call.answer("❌ Неизвестная услуга")
+        return
+    
+    data = await state.get_data()
+    selected = data.get("addons", [])
+    
+    if key in selected:
+        selected.remove(key)
+        await call.answer("➖ Убрано")
+    else:
+        selected.append(key)
+        await call.answer("➕ Добавлено")
+    
+    await state.update_data(addons=selected)
+    await call.message.edit_reply_markup(reply_markup=addons_kb(selected))
+
+@router.callback_query(F.data == "addons_done", OrderState.choosing_addons)
+async def addons_done(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    data = await state.get_data()
+    selected = data.get("addons", [])
+    
+    addons_price = sum(ADDONS[k]["price"] for k in selected if k in ADDONS)
+    addons_label = ", ".join(f"{ADDONS[k]['label']} (+{ADDONS[k]['price']:.0f}₽)" for k in selected if k in ADDONS) or None
+    
+    await state.update_data(addons_price=addons_price, addons_label=addons_label)
     await show_details_prompt(call.message, state, edit=True)
 
+# --- ТЗ и промокод ---
 @router.message(OrderState.waiting_for_details)
 async def process_details(message: Message, state: FSMContext):
     await state.update_data(details=message.text)
@@ -362,7 +452,8 @@ async def process_promo_msg(message: Message, state: FSMContext):
 
 async def process_promo_logic(target, state: FSMContext, promo_code: str = None):
     data = await state.get_data()
-    final_price, reason_str = await calculate_price(data['base_price'], target.from_user.id, promo_code)
+    total_base = data.get('base_price', 0) + data.get('addons_price', 0)
+    final_price, reason_str = await calculate_price(total_base, target.from_user.id, promo_code)
     await state.update_data(final_price=final_price, promo_reason=reason_str)
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -370,10 +461,14 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None)
         [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_promo")]
     ])
     
+    addons_line = f"🧩 Доп. услуги: {data['addons_label']}\n" if data.get('addons_label') else ""
+    tier_line = f"🖥 Тариф: {data['server_tier_label']}\n" if data.get('server_tier_label') else ""
+    
     await target.answer(
         f"📋 <b>Предварительный итог:</b>\n"
         f"📦 План: {data.get('package_label', '🤖 Только бот')}\n"
-        f"{('🖥 Тариф: ' + data['server_tier_label'] + chr(10)) if data.get('server_tier_label') else ''}"
+        f"{tier_line}"
+        f"{addons_line}"
         f"🛠 Услуга: {data['service_name']}\n"
         f"📝 ТЗ: {data['details']}\n\n"
         f"💰 <b>Итоговая цена: {final_price}₽</b>{reason_str}",
@@ -393,9 +488,10 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     details = data.get('details', '')
     package_label = data.get('package_label', '🤖 Только бот')
     server_tier_label = data.get('server_tier_label')
+    addons_label = data.get('addons_label')
     user_contact = f"@{call.from_user.username}" if call.from_user.username else f"ID: {user_id}"
     
-    # 1. Сохраняем в SQLite
+    # 1. SQLite
     async with aiosqlite.connect("nil_bots.db") as db_sqlite:
         await db_sqlite.execute("""
             INSERT INTO orders (order_number, user_id, service, details, price, status) 
@@ -404,7 +500,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         await db_sqlite.execute("UPDATE users SET first_order=0 WHERE id=?", (user_id,))
         await db_sqlite.commit()
     
-    # 2. Сохраняем в Firebase (с инфо о плане!)
+    # 2. Firebase
     try:
         order_ref = firebase_db.collection("orders").document(order_number)
         order_ref.set({
@@ -417,6 +513,8 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
             "package_label": package_label,
             "server_tier": data.get('server_tier'),
             "server_tier_label": server_tier_label,
+            "addons": data.get('addons', []),
+            "addons_label": addons_label,
             "desc": details,
             "price": amount,
             "status": "new",
@@ -430,7 +528,6 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     
     await state.clear()
     
-    # Уведомление пользователю
     await call.message.answer(
         f"🎉 <b>Заказ #{order_number} успешно создан!</b>\n\n"
         f"Я передал ваше ТЗ разработчику. В ближайшее время с вами свяжутся для уточнения деталей и оплаты.\n\n"
@@ -439,10 +536,12 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         parse_mode="HTML"
     )
     
-    # Уведомление админу (С ПЛАНОМ!)
+    # Уведомление админу
     plan_line = f"📦 План: {package_label}"
     if server_tier_label:
         plan_line += f"\n🖥 Тариф сервера: {server_tier_label}"
+    if addons_label:
+        plan_line += f"\n🧩 Доп. услуги: {addons_label}"
     
     await bot.send_message(
         ADMIN_ID,
@@ -457,7 +556,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     )
 
 # ============================================
-# ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ
+# ПРОФИЛЬ
 # ============================================
 @router.callback_query(F.data == "profile")
 async def show_profile(call: CallbackQuery, state: FSMContext):
@@ -514,7 +613,7 @@ async def save_bday(message: Message, state: FSMContext):
     await message.answer("✅ День рождения сохранён!", reply_markup=main_menu())
 
 # ============================================
-# АДМИН-ПАНЕЛЬ
+# АДМИНКА
 # ============================================
 @router.callback_query(F.data == "admin_chats")
 async def admin_chats(call: CallbackQuery):
@@ -621,7 +720,7 @@ async def promo_uses_input(message: Message, state: FSMContext):
         await message.answer("❌ Введи число.")
 
 # ============================================
-# ПОДДЕРЖКА (пользовательские сообщения) — САМЫЙ ПОСЛЕДНИЙ ХЕНДЛЕР!
+# ПОДДЕРЖКА (последний хендлер!)
 # ============================================
 @router.message(F.text)
 async def support_msg(message: Message, state: FSMContext):
@@ -633,7 +732,6 @@ async def support_msg(message: Message, state: FSMContext):
                          (message.from_user.id, message.text))
         await db.commit()
     
-    # Пересылаем админу
     try:
         await bot.send_message(ADMIN_ID, f"💬 <b>Сообщение от {message.from_user.full_name}</b> (ID: {message.from_user.id}):\n\n{message.text}", parse_mode="HTML")
     except Exception:
@@ -649,6 +747,7 @@ async def main():
     print("🚀 Бот nil.bots запущен!")
     print(f"👑 Admin ID: {ADMIN_ID}")
     print(f"💰 Цены: Бот={PRICE_BOT_ONLY}₽, Basic={PRICE_SERVER_BASIC}₽, Pro={PRICE_SERVER_PRO}₽")
+    print(f"🧩 Доп: поддержка={ADDONS['support_bot']['price']}₽, приоритет={ADDONS['priority']['price']}₽")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
