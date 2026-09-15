@@ -214,13 +214,17 @@ async def pkg_bot_only(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "pkg_bot_server", OrderState.choosing_package)
 async def pkg_bot_server(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    # ⬇️ ВОТ ЭТА СТРОКА БЫЛА ПРОПУЩЕНА — сохраняем базовую цену бота!
+    await state.update_data(package="bot_server", base_price=PRICE_BOT_ONLY, service_name="Разработка бота")
+    
     kb = [
         [InlineKeyboardButton(text="⚡ Базовый (99₽/мес)", callback_data="srv_basic")],
         [InlineKeyboardButton(text="🚀 Продвинутый (250₽/мес)", callback_data="srv_pro")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="order_start")]
     ]
     await call.message.edit_text(
-        " <b>Выберите тариф хостинга для вашего бота:</b>\n\n"
+        "🖥 <b>Выберите тариф хостинга для вашего бота:</b>\n\n"
         f"⚡ <b>Базовый:</b> {PRICE_SERVER_BASIC}₽/мес (Для простых ботов)\n"
         f"🚀 <b>Продвинутый:</b> {PRICE_SERVER_PRO}₽/мес (Для ботов с БД и высокой нагрузкой)",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb),
