@@ -234,23 +234,26 @@ async def pkg_bot_server(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.in_(["srv_basic", "srv_pro"]), OrderState.choosing_server_tier)
 async def process_server_tier(call: CallbackQuery, state: FSMContext):
-    tier = call.data
-    if tier == "srv_basic":
+    await call.answer()
+    data = await state.get_data()
+    base_price = data.get('base_price', PRICE_BOT_ONLY)  # Защита от KeyError
+    
+    if call.data == "srv_basic":
         server_price = PRICE_SERVER_BASIC
         server_name = "Хостинг (Базовый)"
     else:
         server_price = PRICE_SERVER_PRO
         server_name = "Хостинг (Продвинутый)"
     
-    data = await state.get_data()
-    total_base = data['base_price'] + server_price
-    
     await state.update_data(
-        package="bot_server", 
-        base_price=total_base, 
+        package="bot_server",
+        base_price=base_price + server_price,
         service_name=f"Разработка бота + {server_name}"
     )
-    await call.message.edit_text("📝 Отлично! Теперь опиши подробно, какого бота ты хочешь (функционал, идеи, примеры):", reply_markup=back_kb("order_start"))
+    await call.message.edit_text(
+        "📝 Отлично! Теперь опиши подробно, какого бота ты хочешь (функционал, идеи, примеры):",
+        reply_markup=back_kb("order_start")
+    )
     await state.set_state(OrderState.waiting_for_details)
 
 @router.message(OrderState.waiting_for_details)
