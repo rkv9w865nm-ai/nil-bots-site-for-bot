@@ -19,7 +19,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 
 # Цены (МОЖЕШЬ ОСТАВИТЬ В КОДЕ или тоже вынести в переменные)
-PRICE_BOT_ONLY = float(os.environ.get("PRICE_BOT_ONLY", 3000.0))
+PRICE_BOT_ONLY = float(os.environ.get("PRICE_BOT_ONLY", 115.0))
 PRICE_SERVER_BASIC = float(os.environ.get("PRICE_SERVER_BASIC", 99.0))
 PRICE_SERVER_PRO = float(os.environ.get("PRICE_SERVER_PRO", 250.0))
 
