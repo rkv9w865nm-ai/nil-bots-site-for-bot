@@ -13,15 +13,15 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 # ============================================
-# НАСТРОЙКИ
+# НАСТРОЙКИ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
 # ============================================
-BOT_TOKEN = "8960247259:AAEEnulu0TY6XNrXwp0Fnuw2QhKmtrLM7l4"
-ADMIN_ID = 5244755472  # Твой Telegram ID
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 
-# Цены (МОЖЕШЬ ПОМЕНЯТЬ ЗДЕСЬ!)
-PRICE_BOT_ONLY = 3000.0      # Цена только за разработку бота
-PRICE_SERVER_BASIC = 99.0    # Цена базового хостинга в месяц
-PRICE_SERVER_PRO = 250.0     # Цена продвинутого хостинга в месяц
+# Цены (МОЖЕШЬ ОСТАВИТЬ В КОДЕ или тоже вынести в переменные)
+PRICE_BOT_ONLY = float(os.environ.get("PRICE_BOT_ONLY", 3000.0))
+PRICE_SERVER_BASIC = float(os.environ.get("PRICE_SERVER_BASIC", 99.0))
+PRICE_SERVER_PRO = float(os.environ.get("PRICE_SERVER_PRO", 250.0))
 
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ FIREBASE
@@ -40,6 +40,14 @@ firebase_db = firestore.client()
 # ============================================
 # ИНИЦИАЛИЗАЦИЯ БОТА
 # ============================================
+if not BOT_TOKEN:
+    print("❌ ОШИБКА: Переменная BOT_TOKEN не задана!")
+    exit(1)
+
+if not ADMIN_ID:
+    print("❌ ОШИБКА: Переменная ADMIN_ID не задана!")
+    exit(1)
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
@@ -49,11 +57,11 @@ dp.include_router(router)
 # СОСТОЯНИЯ (FSM)
 # ============================================
 class OrderState(StatesGroup):
-    choosing_package = State()       # Выбор: только бот или бот+сервер
-    choosing_server_tier = State()   # Выбор тарифа сервера
-    waiting_for_details = State()    # Ввод ТЗ
-    waiting_for_promo = State()      # Ввод промокода
-    confirming_order = State()       # Финальное подтверждение
+    choosing_package = State()
+    choosing_server_tier = State()
+    waiting_for_details = State()
+    waiting_for_promo = State()
+    confirming_order = State()
 
 class SetBdayState(StatesGroup):
     waiting_for_bday = State()
@@ -126,7 +134,7 @@ async def calculate_price(base_price: float, user_id: int, promo_code: str = Non
                 await db.execute("UPDATE promos SET uses_left = uses_left - 1 WHERE code=?", (promo_code.upper(),))
                 await db.commit()
 
-    discount = min(discount, 20) # Макс скидка 20%
+    discount = min(discount, 20)
     final_price = round(base_price * (1 - discount / 100), 2)
     reason_str = f"\n🎁 Скидка {discount}% ({', '.join(reasons)})" if discount > 0 else ""
     
@@ -138,7 +146,7 @@ def get_status_emoji(status: str) -> str:
         "working": "🔵 В работе",
         "done": "🟢 Готов",
         "cancelled": "🔴 Отменен",
-        "closed": "⚫ Закрыт",
+        "closed": " Закрыт",
         "paid": "💰 Оплачен"
     }
     return statuses.get(status, "❓ Неизвестно")
@@ -150,7 +158,7 @@ def main_menu():
     kb = [
         [InlineKeyboardButton(text="🛠 Заказать разработку", callback_data="order_start")],
         [InlineKeyboardButton(text="👤 Мой профиль и заказы", callback_data="profile")],
-        [InlineKeyboardButton(text="🌐 Наш сайт", url="https://nil-bots-site-with-bot.vercel.app/")],
+        [InlineKeyboardButton(text=" Наш сайт", url="https://nil-bots-site-with-bot.vercel.app/")],
         [InlineKeyboardButton(text="💬 Техподдержка", url="https://t.me/nilbots_support_bot")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -175,9 +183,9 @@ async def cmd_start(message: Message, state: FSMContext):
         await db.commit()
     
     if message.from_user.id == ADMIN_ID:
-        await message.answer("👑 <b>Админ-панель:</b>", reply_markup=admin_menu(), parse_mode="HTML")
+        await message.answer(" <b>Админ-панель:</b>", reply_markup=admin_menu(), parse_mode="HTML")
     else:
-        await message.answer("👋 <b>Привет!</b>\nЯ помогу тебе заказать идеального Telegram-бота.", reply_markup=main_menu(), parse_mode="HTML")
+        await message.answer(" <b>Привет!</b>\nЯ помогу тебе заказать идеального Telegram-бота.", reply_markup=main_menu(), parse_mode="HTML")
 
 # ============================================
 # ХЕНДЛЕРЫ: ПРОЦЕСС ЗАКАЗА
@@ -188,7 +196,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
     kb = [
         [InlineKeyboardButton(text="🤖 Только бот", callback_data="pkg_bot_only")],
         [InlineKeyboardButton(text="🤖+🖥 Бот + Сервер", callback_data="pkg_bot_server")],
-        [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
+        [InlineKeyboardButton(text=" В главное меню", callback_data="start_back_to_main")]
     ]
     await call.message.edit_text(
         "🛠 <b>Что именно вы хотите заказать?</b>\n\n"
@@ -212,7 +220,7 @@ async def pkg_bot_server(call: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="🔙 Назад", callback_data="order_start")]
     ]
     await call.message.edit_text(
-        "🖥 <b>Выберите тариф хостинга для вашего бота:</b>\n\n"
+        " <b>Выберите тариф хостинга для вашего бота:</b>\n\n"
         f"⚡ <b>Базовый:</b> {PRICE_SERVER_BASIC}₽/мес (Для простых ботов)\n"
         f"🚀 <b>Продвинутый:</b> {PRICE_SERVER_PRO}₽/мес (Для ботов с БД и высокой нагрузкой)",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb),
@@ -245,7 +253,7 @@ async def process_server_tier(call: CallbackQuery, state: FSMContext):
 async def process_details(message: Message, state: FSMContext):
     await state.update_data(details=message.text)
     kb = [
-        [InlineKeyboardButton(text="💬 Есть промокод", callback_data="enter_promo")],
+        [InlineKeyboardButton(text=" Есть промокод", callback_data="enter_promo")],
         [InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip_promo")],
         [InlineKeyboardButton(text="🔙 Назад к выбору", callback_data="order_start")]
     ]
@@ -255,7 +263,6 @@ async def process_details(message: Message, state: FSMContext):
 @router.callback_query(F.data == "enter_promo", OrderState.waiting_for_promo)
 async def enter_promo(call: CallbackQuery, state: FSMContext):
     await call.message.answer("✏️ Введите ваш промокод:")
-    # Состояние не меняем, ждем обычное сообщение
 
 @router.message(OrderState.waiting_for_promo)
 async def process_promo_msg(message: Message, state: FSMContext):
@@ -272,7 +279,7 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None)
     
     kb = [
         [InlineKeyboardButton(text="✅ Подтвердить заказ", callback_data="confirm_order")],
-        [InlineKeyboardButton(text="🔙 Назад к вводу промокода", callback_data="order_start")] # Упрощенный возврат
+        [InlineKeyboardButton(text="🔙 Назад к вводу промокода", callback_data="order_start")]
     ]
     
     await target.answer(
@@ -302,7 +309,6 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
             INSERT INTO orders (order_number, user_id, service, details, price, status) 
             VALUES (?, ?, ?, ?, ?, 'new')
         """, (order_number, user_id, service_name, details, amount))
-        # Обновляем флаг первого заказа
         await db_sqlite.execute("UPDATE users SET first_order=0 WHERE id=?", (user_id,))
         await db_sqlite.commit()
     
@@ -328,18 +334,16 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     
     await state.clear()
     
-    # Уведомление пользователю
     await call.message.answer(
         f"🎉 <b>Заказ #{order_number} успешно создан!</b>\n\n"
-        f"Я передал ваше ТЗ разработчику. В ближайшее время я (или мой коллега) свяжусь с вами для уточнения деталей и предоставления реквизитов для оплаты.\n\n"
-        f"📊 <b>Отслеживать статус заказа можно на нашем сайте:</b>\n"
+        f"Я передал ваше ТЗ разработчику. В ближайшее время я свяжусь с вами для уточнения деталей.\n\n"
+        f"📊 <b>Отслеживать статус заказа:</b>\n"
         f"https://nil-bots-site-with-bot.vercel.app\n"
-        f"(введите номер: <b>{order_number}</b>)",
+        f"(номер: <b>{order_number}</b>)",
         reply_markup=main_menu(),
         parse_mode="HTML"
     )
     
-    # Уведомление админу
     await bot.send_message(
         ADMIN_ID,
         f"🔥 <b>НОВЫЙ ЗАКАЗ #{order_number}</b>\n\n"
@@ -352,18 +356,15 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     )
 
 # ============================================
-# ХЕНДЛЕРЫ: ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ
+# ПРОФИЛЬ
 # ============================================
 @router.callback_query(F.data == "profile")
 async def show_profile(call: CallbackQuery, state: FSMContext):
     user_id = call.from_user.id
     
-    # Получаем данные пользователя
     async with aiosqlite.connect("nil_bots.db") as db:
         cursor = await db.execute("SELECT username, birthday, first_order FROM users WHERE id=?", (user_id,))
         user = await cursor.fetchone()
-        
-        # Получаем заказы пользователя
         cursor_orders = await db.execute(
             "SELECT order_number, service, price, status, created_at FROM orders WHERE user_id=? ORDER BY id DESC", 
             (user_id,)
@@ -372,38 +373,34 @@ async def show_profile(call: CallbackQuery, state: FSMContext):
     
     username = user[0] if user and user[0] else "Не указан"
     bday = user[1] if user and user[1] else "Не указан"
-    first_text = "Да" if (user and user[2] == 1) else "Нет"
     
     text = f"👤 <b>Ваш профиль:</b>\n"
     text += f"🆔 ID: <code>{user_id}</code>\n"
     text += f"📱 Username: @{username}\n"
-    text += f"🎂 День рождения: {bday}\n"
-    text += f"🎁 Первый заказ: {first_text}\n\n"
+    text += f"🎂 День рождения: {bday}\n\n"
     
     if orders:
         text += f"📦 <b>Ваши заказы ({len(orders)}):</b>\n"
         for o in orders:
             order_num, service, price, status, date = o
             status_emoji = get_status_emoji(status)
-            # Обрезаем дату для красоты
             short_date = date.split('T')[0] if date else "Неизвестно"
             text += f"\n🔹 <b>#{order_num}</b> ({short_date})\n"
             text += f"   {service} | {price}₽\n"
             text += f"   Статус: {status_emoji}"
     else:
-        text += "📭 У вас пока нет заказов."
+        text += " У вас пока нет заказов."
     
     kb = [
-        [InlineKeyboardButton(text="🎂 Изменить ДР", callback_data="set_bday")],
+        [InlineKeyboardButton(text=" Изменить ДР", callback_data="set_bday")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
     ]
     
-    # Если сообщение слишком длинное, Telegram его обрежет. Но для ~10 заказов хватит.
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
 
 @router.callback_query(F.data == "set_bday")
 async def set_bday(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("✏️ Напиши дату рождения в формате ДД.ММ (например, 15.09):", reply_markup=back_kb("profile"))
+    await call.message.edit_text("️ Напиши дату рождения в формате ДД.ММ:", reply_markup=back_kb("profile"))
     await state.set_state(SetBdayState.waiting_for_bday)
 
 @router.message(SetBdayState.waiting_for_bday)
@@ -415,7 +412,7 @@ async def save_bday(message: Message, state: FSMContext):
     await message.answer("✅ День рождения сохранён!", reply_markup=main_menu())
 
 # ============================================
-# ХЕНДЛЕРЫ: АДМИН ПАНЕЛЬ (Упрощенная)
+# АДМИНКА (УПРОЩЕННАЯ)
 # ============================================
 @router.callback_query(F.data == "admin_chats")
 async def admin_chats(call: CallbackQuery):
@@ -423,11 +420,11 @@ async def admin_chats(call: CallbackQuery):
         cursor = await db.execute("SELECT DISTINCT user_id FROM messages")
         users = await cursor.fetchall()
     if not users:
-        return await call.message.edit_text("💬 Диалогов пока нет.", reply_markup=back_kb("start_back_to_main"))
+        return await call.message.edit_text(" Диалогов пока нет.", reply_markup=back_kb("start_back_to_main"))
     
-    kb = [[InlineKeyboardButton(text=f"👤 {u[0]}", callback_data=f"chat_{u[0]}")] for u in users]
-    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="start_back_to_main")])
-    await call.message.edit_text("💬 <b>Выберите пользователя для ответа:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    kb = [[InlineKeyboardButton(text=f" {u[0]}", callback_data=f"chat_{u[0]}")] for u in users]
+    kb.append([InlineKeyboardButton(text=" Назад", callback_data="start_back_to_main")])
+    await call.message.edit_text("💬 <b>Выберите пользователя:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
 
 @router.callback_query(F.data.startswith("chat_"))
 async def read_chat(call: CallbackQuery):
@@ -436,10 +433,10 @@ async def read_chat(call: CallbackQuery):
         cursor = await db.execute("SELECT text, is_user FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 15", (user_id,))
         msgs = await cursor.fetchall()
     
-    history = "\n".join([f"{'👤 Клиент' if m[1] else '👑 Вы'}: {m[0]}" for m in reversed(msgs)])
+    history = "\n".join([f"{'👤 Клиент' if m[1] else ' Вы'}: {m[0]}" for m in reversed(msgs)])
     kb = [
         [InlineKeyboardButton(text="✏️ Написать ответ", callback_data=f"reply_{user_id}")],
-        [InlineKeyboardButton(text="🔙 К списку чатов", callback_data="admin_chats")]
+        [InlineKeyboardButton(text="🔙 К чатам", callback_data="admin_chats")]
     ]
     await call.message.edit_text(f"💬 <b>Чат с {user_id}:</b>\n\n{history}", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
 
@@ -447,16 +444,16 @@ async def read_chat(call: CallbackQuery):
 async def start_admin_reply(call: CallbackQuery, state: FSMContext):
     user_id = int(call.data.split("_")[1])
     await state.update_data(target_user_id=user_id)
-    await state.set_state(OrderState.waiting_for_details) # Используем существующее состояние для простоты
-    await call.message.edit_text(f"✏️ Введи текст ответа для пользователя {user_id}:\n(или нажми /cancel)", reply_markup=back_kb("admin_chats"))
+    await state.set_state(OrderState.waiting_for_details)
+    await call.message.edit_text(f"✏️ Введи ответ для {user_id}:", reply_markup=back_kb("admin_chats"))
 
 @router.message(Command("cancel"))
 async def cancel_state(message: Message, state: FSMContext):
     await state.clear()
     kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
-    await message.answer("❌ Действие отменено.", reply_markup=kb)
+    await message.answer("❌ Отменено.", reply_markup=kb)
 
-@router.message(OrderState.waiting_for_details) # Перехватываем ответ админа
+@router.message(OrderState.waiting_for_details)
 async def admin_send_reply(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
@@ -466,32 +463,32 @@ async def admin_send_reply(message: Message, state: FSMContext):
         return
         
     try:
-        await bot.send_message(target_user_id, f"👑 <b>Ответ от разработки Nil Bots:</b>\n\n{message.text}", parse_mode="HTML")
+        await bot.send_message(target_user_id, f"👑 <b>Ответ от Nil Bots:</b>\n\n{message.text}", parse_mode="HTML")
         async with aiosqlite.connect("nil_bots.db") as db:
             await db.execute("INSERT INTO messages (user_id, text, is_user) VALUES (?, ?, 0)", (target_user_id, message.text))
             await db.commit()
-        await message.answer(f"✅ Сообщение отправлено пользователю {target_user_id}.", reply_markup=admin_menu())
+        await message.answer(f"✅ Отправлено {target_user_id}.", reply_markup=admin_menu())
     except Exception as e:
-        await message.answer(f"❌ Ошибка отправки: {e}\n(Возможно, бот заблокирован пользователем)")
+        await message.answer(f"❌ Ошибка: {e}")
     await state.clear()
 
 @router.callback_query(F.data == "admin_promos")
 async def admin_promos(call: CallbackQuery):
     kb = [
         [InlineKeyboardButton(text="➕ Создать промокод", callback_data="create_promo")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="start_back_to_main")]
+        [InlineKeyboardButton(text=" Назад", callback_data="start_back_to_main")]
     ]
-    await call.message.edit_text("🎟 <b>Управление промокодами:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await call.message.edit_text("🎟 <b>Промокоды:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
 
 @router.callback_query(F.data == "create_promo")
 async def create_promo(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_text("✏️ Введи название промокода (например, NIL10):", reply_markup=back_kb("admin_promos"))
+    await call.message.edit_text("✏️ Название промокода:", reply_markup=back_kb("admin_promos"))
     await state.set_state(AddPromoState.waiting_for_code)
 
 @router.message(AddPromoState.waiting_for_code)
 async def promo_code_input(message: Message, state: FSMContext):
     await state.update_data(code=message.text.strip().upper())
-    await message.answer("💰 Введи размер скидки в % (например, 10):")
+    await message.answer("💰 Размер скидки в %:")
     await state.set_state(AddPromoState.waiting_for_discount)
 
 @router.message(AddPromoState.waiting_for_discount)
@@ -499,7 +496,7 @@ async def promo_discount_input(message: Message, state: FSMContext):
     try:
         discount = int(message.text)
         await state.update_data(discount=discount)
-        await message.answer("🔢 Введи количество активаций (например, 50):")
+        await message.answer(" Количество активаций:")
         await state.set_state(AddPromoState.waiting_for_uses)
     except ValueError:
         await message.answer("❌ Введи число.")
@@ -514,9 +511,9 @@ async def promo_uses_input(message: Message, state: FSMContext):
                            (data['code'], data['discount'], uses))
             await db.commit()
         await state.clear()
-        await message.answer(f"✅ Промокод <b>{data['code']}</b> создан!\nСкидка: {data['discount']}%\nАктиваций: {uses}", reply_markup=admin_menu(), parse_mode="HTML")
+        await message.answer(f"✅ Промокод {data['code']} создан!", reply_markup=admin_menu())
     except ValueError:
-        await message.answer("❌ Введи число.")
+        await message.answer(" Введи число.")
 
 @router.callback_query(F.data == "start_back_to_main")
 async def start_back_to_main(call: CallbackQuery, state: FSMContext):
@@ -529,9 +526,9 @@ async def start_back_to_main(call: CallbackQuery, state: FSMContext):
 # ============================================
 async def main():
     await init_db()
-    print("🚀 Бот nil.bots (Sales) запущен!")
+    print("🚀 Бот nil.bots запущен!")
     print(f"👑 Admin ID: {ADMIN_ID}")
-    print("📦 Заказы синхронизируются с Firebase")
+    print(f"💰 Цены: Бот={PRICE_BOT_ONLY}₽, Basic={PRICE_SERVER_BASIC}₽, Pro={PRICE_SERVER_PRO}₽")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
