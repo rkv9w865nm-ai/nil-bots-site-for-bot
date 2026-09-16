@@ -102,7 +102,7 @@ def _settings_listener(snapshot, changes, read_time):
 def start_settings_listener():
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_event_loop()
-    db.collection("settings").document("main").on_snapshot(_settings_listener)
+    firebase_db.collection("settings").document("main").on_snapshot(_settings_listener)
     print("👂 Listener тех. работ запущен")
 
 # ============================================
