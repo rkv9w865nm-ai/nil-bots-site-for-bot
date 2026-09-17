@@ -35,6 +35,30 @@ ADDONS = {
 SITE_URL = "https://nil-bots-site-with-bot.vercel.app/"
 SUPPORT_URL = "https://t.me/nilbots_support_bot"
 
+PRIVACY_POLICY_URL = "https://telegra.ph/POLITIKA-KONFIDENCIALNOSTI-08-12-99"
+TERMS_OF_USE_URL = "https://telegra.ph/PUBLICHNAYA-OFERTA-08-12-15"
+
+LIABILITY_TEXT = (
+    "⚠️ <b>Ограничение ответственности и особые условия использования</b>\n\n"
+    "1. <b>Ограничение ответственности:</b> Исполнитель не несет ответственности за временную "
+    "или постоянную блокировку бота со стороны администрации Telegram, изменения в API сторонних "
+    "сервисов, а также за упущенную выгоду или убытки Заказчика, возникшие в результате использования "
+    "или невозможности использования бота.\n\n"
+    "2. <b>Законность использования и данные:</b> Заказчик несет единоличную ответственность за "
+    "соблюдение применимого законодательства (включая 152-ФЗ «О персональных данных») при сборе и "
+    "обработке данных через бота, а также за законность контента, распространяемого с его помощью. "
+    "Исполнитель не является оператором персональных данных пользователей Заказчика.\n\n"
+    "3. <b>Интеллектуальная собственность:</b> Если договором не предусмотрено иное, Исполнитель "
+    "передает Заказчику неисключительное право использования бота. Заказчик не вправе продавать, "
+    "передавать третьим лицам или публиковать исходный код бота без письменного согласия Исполнителя.\n\n"
+    "4. <b>Возврат средств:</b> Услуга считается оказанной с момента передачи Заказчику доступа к "
+    "боту, исходного кода или документации. Возврат денежных средств за качественно оказанную услугу "
+    "(работу) не производится, так как результат имеет индивидуально-определенные свойства.\n\n"
+    "5. <b>Расторжение:</b> Исполнитель вправе приостановить работу бота или расторгнуть договор в "
+    "одностороннем порядке без возврата средств, если Заказчик использует бота для спама, мошенничества "
+    "или иной незаконной деятельности."
+)
+
 # ============================================
 # FIREBASE
 # ============================================
@@ -158,6 +182,27 @@ async def generate_order_number():
                 return number
 
 # ============================================
+# ПРОМОКОДЫ
+# ============================================
+async def get_promo(code: str):
+    """Возвращает (discount, uses_left) для промокода или None, если его нет."""
+    async with aiosqlite.connect("nil_bots.db") as db:
+        cursor = await db.execute(
+            "SELECT discount, uses_left FROM promos WHERE code=?", (code.strip().upper(),)
+        )
+        return await cursor.fetchone()
+
+async def consume_promo(code: str) -> bool:
+    """Списывает одну активацию промокода. Возвращает True, если получилось."""
+    code = code.strip().upper()
+    async with aiosqlite.connect("nil_bots.db") as db:
+        cursor = await db.execute(
+            "UPDATE promos SET uses_left = uses_left - 1 WHERE code=? AND uses_left > 0", (code,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+# ============================================
 # РАСЧЁТ ЦЕНЫ
 # ============================================
 async def calculate_price(base_price: float, user_id: int, promo_code: str = None):
@@ -177,22 +222,22 @@ async def calculate_price(base_price: float, user_id: int, promo_code: str = Non
         if user[0] == today:
             discount += 10
             reasons.append("день рождения")
-    
+
+    promo_applied = None  # None = промокод не вводился, True/False = применился или нет
     if promo_code:
-        async with aiosqlite.connect("nil_bots.db") as db:
-            cursor = await db.execute("SELECT discount, uses_left FROM promos WHERE code=?", (promo_code.upper(),))
-            promo = await cursor.fetchone()
-            if promo and promo[1] > 0:
-                discount += promo[0]
-                reasons.append(f"промокод {promo_code.upper()}")
-                await db.execute("UPDATE promos SET uses_left = uses_left - 1 WHERE code=?", (promo_code.upper(),))
-                await db.commit()
+        promo = await get_promo(promo_code)
+        if promo and promo[1] > 0 and await consume_promo(promo_code):
+            discount += promo[0]
+            reasons.append(f"промокод {promo_code.strip().upper()}")
+            promo_applied = True
+        else:
+            promo_applied = False
 
     discount = min(discount, 20)
     final_price = round(base_price * (1 - discount / 100), 2)
     reason_str = f"\n🎁 Скидка {discount}% ({', '.join(reasons)})" if discount > 0 else ""
     
-    return final_price, reason_str
+    return final_price, reason_str, promo_applied
 
 def get_status_emoji(status: str) -> str:
     statuses = {
@@ -211,15 +256,25 @@ def main_menu():
     kb = [
         [InlineKeyboardButton(text="🛠 Заказать разработку", callback_data="order_start")],
         [InlineKeyboardButton(text="👤 Мой профиль и заказы", callback_data="profile")],
+        [InlineKeyboardButton(text="📄 Документация", callback_data="docs")],
         [InlineKeyboardButton(text="🌐 Наш сайт", url=SITE_URL)],
         [InlineKeyboardButton(text="💬 Техподдержка", url=SUPPORT_URL)]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+def docs_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Политика конфиденциальности", url=PRIVACY_POLICY_URL)],
+        [InlineKeyboardButton(text="Пользовательское соглашение", url=TERMS_OF_USE_URL)],
+        [InlineKeyboardButton(text="⚠️ Ограничение ответственности", callback_data="docs_liability")],
+        [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
+    ])
+
 def admin_menu():
     kb = [
         [InlineKeyboardButton(text="💬 Чаты с клиентами", callback_data="admin_chats")],
-        [InlineKeyboardButton(text="🎟 Промокоды", callback_data="admin_promos")]
+        [InlineKeyboardButton(text="🎟 Промокоды", callback_data="admin_promos")],
+        [InlineKeyboardButton(text="📄 Документация", callback_data="docs")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -239,6 +294,12 @@ def addons_kb(selected: list):
     rows.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="addons_done")])
     rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="nav_back_from_addons")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def promo_prompt_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip_promo")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_promo")]
+    ])
 
 # ============================================
 # ЭКРАНЫ
@@ -333,6 +394,27 @@ async def cmd_start(message: Message, state: FSMContext):
             tw(notice + "👋 <b>Привет!</b>\nЯ помогу тебе заказать идеального Telegram-бота."),
             reply_markup=main_menu(), parse_mode="HTML"
         )
+
+# ============================================
+# ДОКУМЕНТАЦИЯ
+# ============================================
+@router.callback_query(F.data == "docs")
+async def docs_handler(call: CallbackQuery):
+    await call.answer()
+    await call.message.edit_text(
+        tw("📄 <b>Документация</b>\n\nВыбери документ:"),
+        reply_markup=docs_kb(),
+        parse_mode="HTML"
+    )
+
+@router.callback_query(F.data == "docs_liability")
+async def docs_liability_handler(call: CallbackQuery):
+    await call.answer()
+    await call.message.edit_text(
+        tw(LIABILITY_TEXT),
+        reply_markup=back_kb("docs"),
+        parse_mode="HTML"
+    )
 
 # ============================================
 # НАВИГАЦИЯ
@@ -486,16 +568,36 @@ async def enter_promo(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "skip_promo", OrderState.waiting_for_promo)
 async def skip_promo(call: CallbackQuery, state: FSMContext):
+    await call.answer()
     await process_promo_logic(call.message, state, promo_code=None)
 
 @router.message(OrderState.waiting_for_promo)
 async def process_promo_msg(message: Message, state: FSMContext):
-    await process_promo_logic(message, state, promo_code=message.text.strip())
+    code = message.text.strip()
+    promo = await get_promo(code)
+    if not promo or promo[1] <= 0:
+        await message.answer(
+            tw(f"❌ Промокод «{code}» не найден или у него закончились активации.\n"
+               "Попробуй ввести другой код или нажми «Пропустить»."),
+            reply_markup=promo_prompt_kb()
+        )
+        return
+    await process_promo_logic(message, state, promo_code=code)
 
 async def process_promo_logic(target, state: FSMContext, promo_code: str = None):
     data = await state.get_data()
     total_base = data.get('base_price', 0) + data.get('addons_price', 0)
-    final_price, reason_str = await calculate_price(total_base, target.from_user.id, promo_code)
+    final_price, reason_str, promo_applied = await calculate_price(total_base, target.from_user.id, promo_code)
+
+    if promo_applied is False:
+        # Промокод существовал секунду назад, но кто-то успел исчерпать активации — сообщаем и просим другой
+        await target.answer(
+            tw(f"❌ Промокод «{promo_code.strip().upper()}» только что закончился.\n"
+               "Попробуй другой код или нажми «Пропустить»."),
+            reply_markup=promo_prompt_kb()
+        )
+        return
+
     await state.update_data(final_price=final_price, promo_reason=reason_str)
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -722,11 +824,22 @@ async def cancel_state(message: Message, state: FSMContext):
 @router.callback_query(F.data == "admin_promos")
 async def admin_promos(call: CallbackQuery):
     await call.answer()
+    async with aiosqlite.connect("nil_bots.db") as db:
+        cursor = await db.execute("SELECT code, discount, uses_left FROM promos ORDER BY code")
+        promos = await cursor.fetchall()
+
+    text = "🎟 <b>Управление промокодами:</b>\n\n"
+    if promos:
+        for code, discount, uses_left in promos:
+            text += f"• <code>{code}</code> — {discount}% (осталось активаций: {uses_left})\n"
+    else:
+        text += "Промокодов пока нет."
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Создать промокод", callback_data="create_promo")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="start_back_to_main")]
     ])
-    await call.message.edit_text(tw("🎟 <b>Управление промокодами:</b>"), reply_markup=kb, parse_mode="HTML")
+    await call.message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
 
 @router.callback_query(F.data == "create_promo")
 async def create_promo(call: CallbackQuery, state: FSMContext):
@@ -736,33 +849,51 @@ async def create_promo(call: CallbackQuery, state: FSMContext):
 
 @router.message(AddPromoState.waiting_for_code)
 async def promo_code_input(message: Message, state: FSMContext):
-    await state.update_data(code=message.text.strip().upper())
-    await message.answer(tw("💰 Введи размер скидки в % (например, 10):"))
+    code = message.text.strip().upper()
+    if not code or " " in code:
+        await message.answer("❌ Код не должен быть пустым и не должен содержать пробелов. Попробуй ещё раз:")
+        return
+    existing = await get_promo(code)
+    await state.update_data(code=code)
+    note = "\n⚠️ Такой код уже существует — старые настройки будут заменены." if existing else ""
+    await message.answer(tw(f"💰 Введи размер скидки в % (от 1 до 100):{note}"))
     await state.set_state(AddPromoState.waiting_for_discount)
 
 @router.message(AddPromoState.waiting_for_discount)
 async def promo_discount_input(message: Message, state: FSMContext):
     try:
-        discount = int(message.text)
-        await state.update_data(discount=discount)
-        await message.answer(tw("🔢 Введи количество активаций (например, 50):"))
-        await state.set_state(AddPromoState.waiting_for_uses)
+        discount = int(message.text.strip())
     except ValueError:
-        await message.answer("❌ Введи число.")
+        await message.answer("❌ Введи целое число.")
+        return
+    if not (1 <= discount <= 100):
+        await message.answer("❌ Скидка должна быть от 1 до 100.")
+        return
+    await state.update_data(discount=discount)
+    await message.answer(tw("🔢 Введи количество активаций (например, 50):"))
+    await state.set_state(AddPromoState.waiting_for_uses)
 
 @router.message(AddPromoState.waiting_for_uses)
 async def promo_uses_input(message: Message, state: FSMContext):
     try:
-        uses = int(message.text)
-        data = await state.get_data()
-        async with aiosqlite.connect("nil_bots.db") as db:
-            await db.execute("INSERT OR REPLACE INTO promos (code, discount, uses_left) VALUES (?, ?, ?)",
-                           (data['code'], data['discount'], uses))
-            await db.commit()
-        await state.clear()
-        await message.answer(tw(f"✅ Промокод <b>{data['code']}</b> создан!\nСкидка: {data['discount']}%\nАктиваций: {uses}"), reply_markup=admin_menu(), parse_mode="HTML")
+        uses = int(message.text.strip())
     except ValueError:
-        await message.answer("❌ Введи число.")
+        await message.answer("❌ Введи целое число.")
+        return
+    if uses <= 0:
+        await message.answer("❌ Количество активаций должно быть больше 0.")
+        return
+
+    data = await state.get_data()
+    async with aiosqlite.connect("nil_bots.db") as db:
+        await db.execute("INSERT OR REPLACE INTO promos (code, discount, uses_left) VALUES (?, ?, ?)",
+                       (data['code'], data['discount'], uses))
+        await db.commit()
+    await state.clear()
+    await message.answer(
+        tw(f"✅ Промокод <b>{data['code']}</b> создан!\nСкидка: {data['discount']}%\nАктиваций: {uses}"),
+        reply_markup=admin_menu(), parse_mode="HTML"
+    )
 
 # ============================================
 # ПОДДЕРЖКА (последний хендлер!)
