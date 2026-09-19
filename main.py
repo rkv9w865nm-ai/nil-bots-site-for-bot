@@ -326,9 +326,10 @@ async def broadcast_maintenance():
             pass
     print(f"📢 Оповещение о тех. работах: {sent}/{len(user_ids)}")
 
-def settingslistener(docsnapshot, fromcache):
-    """Слушает документ settings/main в Firebase (2 параметра у DocumentSnapshot)"""
+def _settings_listener(snapshot, changes, read_time):
+    """Слушает документ settings/main в Firebase (3 параметра, как у коллекции)"""
     try:
+        data = snapshot.to_dict() if snapshot.exists else {}
         data = docsnapshot.todict() if doc_snapshot.exists else {}
         on = bool((data or {}).get("maintenance", False))
         prev = MAINTENANCE["on"]
