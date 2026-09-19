@@ -362,7 +362,7 @@ class AddPromoState(StatesGroup):
     waitingforuses = State()
 
 ============================================
-БАЗА ДАННЫХ (SQLite — только чаты админа)
+
 ============================================
 async def init_db():
     async with aiosqlite.connect("nil_bots.db") as db:
