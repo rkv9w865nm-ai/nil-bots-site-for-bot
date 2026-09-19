@@ -192,8 +192,6 @@ dp.include_router(router)
 
 ============================================
 FIRESTORE-ХЕЛПЕРЫ (промокоды + пользователи)
-Все синхронные вызовы Admin SDK оборачиваем в asyncio.to_thread,
-чтобы не блокировать event loop бота.
 ============================================
 def fbpromo_get(code: str):
     snap = firebase_db.collection("promos").document(code).get()
@@ -322,11 +320,10 @@ async def broadcast_maintenance():
             pass
     print(f"📢 Оповещение о тех. работах: {sent}/{len(user_ids)}")
 
-def _settings_listener(snapshot, changes, read_time):
-    """Слушает документ settings/main в Firebase (3 параметра, как у коллекции)"""
+def settingslistener(snapshot, changes, read_time):
+    """Слушает документ settings/main в Firebase (3 параметра)."""
     try:
         data = snapshot.to_dict() if snapshot.exists else {}
-        data = docsnapshot.todict() if doc_snapshot.exists else {}
         on = bool((data or {}).get("maintenance", False))
         prev = MAINTENANCE["on"]
         MAINTENANCE["on"] = on
@@ -384,7 +381,7 @@ async def generateordernumber():
 РАСЧЁТ ЦЕНЫ (пользователь — из Firestore)
 ============================================
 async def calculateprice(baseprice: float, userid: int, promodiscount: int = 0, promo_code: str = None):
-    """Чистый расчёт цены. Промокод только ВАЛИДИРУЕТСЯ, списание — при подтверждении заказа."""
+    """Чистый расчёт цены. Промокод только ВАЛИДИРУЕТСЯ, списание — при подтверждении."""
     user = await getuser(userid)
 
     discount = 0
@@ -1037,3 +1034,24 @@ async def main():
 
 if name == "main":
     asyncio.run(main())
+
+⚠️ Как копировать, чтобы файл НЕ побился снова:
+
+Твой прошлый файл сломался из-за копирования через место, где съелись _ и  (markdown/HTML-рендер). Поэтому:
+
+Копируй кнопкой копирования блока кода (или Ctrl+A внутри серого блока → Ctrl+C)
+Вставь в VS Code / Блокнот, НЕ в Telegram-черновик и НЕ в онлайн-редакторы с «умным» форматированием
+Самопроверка перед пушем (Ctrl+F в редакторе):
+   - BOTTOKEN → ничего не найдено ✅
+   - BOT_TOKEN → найдено ✅
+   - def settingslistener(snapshot, changes, read_time): → найдено ✅
+   - Первая строка файла = import asyncio ✅
+git add main.py && git commit -m "clean restore" && git push
+
+✅ После деплоя жду от тебя логи — норма:
+
+🚀 Бот nil.bots запущен!
+👑 Admin ID: 5244755472
+💰 Цены: Бот=115.0₽, Basic=300.0₽, Премиум=STOP LIST
+👂 Listener тех. работ запущен
+🚧 Режим тех. работ: выключен
