@@ -56,7 +56,7 @@ PRIVACY_POLICY = """\
 • сведения о платежах и их статусе;
 • технические данные устройства и подключения;
 • информацию, предоставленную Пользователем при обращении в поддержку.
-2.2. Оператор не запрашивает пароли, платёжные коды и иные конфиденциальные данные.
+2.2. Оператор не запрашивает пароли, платёжные коды и иные конфиденциальные данные, если их предоставление не требуется соответствующим официальным сервисом.
 
 <b>3. Цели обработки</b>
 3.1. Персональные данные обрабатываются для:
@@ -71,32 +71,30 @@ PRIVACY_POLICY = """\
 • выполнения требований законодательства.
 
 <b>4. Основания обработки</b>
-4.1. Обработка персональных данных осуществляется на основании согласия Пользователя, необходимости исполнения договора, выполнения требований законодательства.
+4.1. Обработка персональных данных осуществляется на основании согласия Пользователя, необходимости исполнения договора, выполнения требований законодательства, а также иных законных оснований, предусмотренных применимым законодательством.
 
 <b>5. Передача данных третьим лицам</b>
 5.1. Оператор не продаёт персональные данные Пользователей третьим лицам.
-5.2. Данные могут передаваться поставщикам услуг в объёме, необходимом для функционирования Сервиса.
-5.3. Передача данных государственным органам — в случаях и порядке, предусмотренных законодательством.
+5.2. Данные могут передаваться платёжным, техническим, информационным и иным поставщикам услуг в объёме, необходимом для функционирования Сервиса.
+5.3. Передача данных государственным органам осуществляется исключительно в случаях и порядке, предусмотренных применимым законодательством.
 
 <b>6. Платёжные данные</b>
-6.1. Обработка банковских карт может осуществляться сторонним платёжным провайдером.
-6.2. Оператор не хранит полные реквизиты банковских карт Пользователей.
+6.1. Обработка банковских карт и иных платёжных реквизитов может осуществляться непосредственно сторонним платёжным провайдером.
+6.2. Если иное не предусмотрено используемой платёжной инфраструктурой, Оператор не хранит полные реквизиты банковских карт Пользователей.
 
 <b>7. Хранение и защита данных</b>
-7.1. Персональные данные хранятся только в течение периода, необходимого для достижения целей обработки.
-7.2. Оператор принимает разумные меры для защиты данных от утраты, изменения, раскрытия.
-7.3. После достижения целей обработки данные могут быть удалены или обезличены.
-
+7.1. Персональные данные хранятся только в течение периода, необходимого для достижения целей обработки, либо в течение срока, установленного законодательством.
+7.2. Оператор принимает разумные технические и организационные меры для защиты данных от утраты, изменения, раскрытия и несанкционированного доступа.
+7.3. После достижения целей обработки данные могут быть удалены или обезличены, если их дальнейшее хранение не требуется законодательством.
 <b>8. Права Пользователя</b>
-8.1. Пользователь вправе запросить доступ к своим данным, их изменение или удаление.
-8.2. Для реализации своих прав Пользователь может обратиться к Оператору.
-
+8.1. В предусмотренных законом случаях Пользователь вправе запросить доступ к своим персональным данным, их изменение или удаление, а также воспользоваться иными предусмотренными законодательством правами.
+8.2. Для реализации своих прав Пользователь может обратиться к Оператору по указанным в Сервисе контактным данным.
 <b>9. Изменение Политики</b>
-9.1. Оператор вправе изменять настоящую Политику.
+9.1. Оператор вправе изменять настоящую Политику в связи с изменением законодательства, функциональности Сервиса или порядка обработки данных.
 9.2. Актуальная редакция Политики публикуется в Сервисе.
 
 <b>10. Контактная информация</b>
-10.1. По вопросам — в службу поддержки по указанным в Сервисе контактам."""
+10.1. По вопросам использования Сервиса Заказчик может обратиться в службу поддержки по указанным в Сервисе контактным данным."""
 
 
 PUBLIC_OFFER = """\
@@ -104,19 +102,19 @@ PUBLIC_OFFER = """\
 <i>Пользовательское соглашение</i>
 
 <b>1. Общие положения</b>
-1.1. Настоящая оферта регулирует отношения между Исполнителем и Заказчиком в связи с предоставлением цифровых товаров и/или услуг посредством онлайн-сервиса (далее — «Сервис»).
-1.2. Использование Сервиса, оформление заказа или оплата услуг означают полное принятие Заказчиком условий настоящего Договора.
-1.3. В случае несогласия Заказчик обязан прекратить использование Сервиса.
+1.1. Настоящая оферта (далее — «Договор») регулирует отношения между Исполнителем и Заказчиком в связи с предоставлением Исполнителем цифровых товаров и/или услуг посредством онлайн-сервиса (далее — «Сервис»).
+1.2. Использование Сервиса, регистрация, оформление заказа, оплата услуг или получение доступа к цифровым материалам означают полное и безоговорочное принятие Заказчиком условий настоящего Договора.
+1.3. В случае несогласия с условиями Договора Заказчик обязан прекратить использование Сервиса.
 
 <b>2. Предмет договора</b>
-2.1. Исполнитель принимает обязательство по предоставлению цифровых товаров и/или услуг, а Заказчик обязуется принять и оплатить их.
-2.2. Доступ обеспечивается посредством программных, технических и информационных средств Сервиса.
-2.3. Состав, стоимость и условия указываются в Сервисе до момента оплаты.
+2.1. В соответствии с условиями настоящего Договора Исполнитель принимает на себя обязательство по предоставлению Заказчику цифровых товаров и/или услуг, а Заказчик обязуется принять указанные товары и услуги и произвести их оплату в порядке и на условиях, определённых настоящей офертой.
+2.2. Доступ к услугам и цифровым товарам обеспечивается посредством программных, технических и информационных средств Сервиса.
+2.3. Конкретный состав, стоимость, срок действия и условия предоставления соответствующего товара или услуги указываются в Сервисе до момента оплаты.
 
 <b>3. Порядок предоставления услуг</b>
-3.1. После успешной оплаты Заказчику предоставляется доступ к приобретённому товару или услуге.
-3.2. Заказчик самостоятельно обеспечивает наличие технических средств и доступа к Интернету.
-3.3. Срок предоставления определяется условиями тарифа или заказа.
+3.1. После успешной оплаты Заказчику предоставляется доступ к приобретённому товару или услуге в порядке, предусмотренном Сервисом.
+3.2. Заказчик самостоятельно обеспечивает наличие необходимых технических средств и доступа к сети Интернет.
+3.3. Срок предоставления доступа определяется условиями соответствующего тарифа или заказа.
 
 <b>4. Оплата и возвраты</b>
 4.1. Стоимость определяется тарифами на момент оформления заказа.
@@ -125,33 +123,33 @@ PUBLIC_OFFER = """\
 4.4. При технической проблеме Заказчик вправе обратиться в поддержку.
 
 <b>5. Права и обязанности Заказчика</b>
-5.1. Заказчик обязуется использовать Сервис законным способом.
-5.2. Запрещается использовать Сервис для мошенничества, распространения вредоносного ПО, нарушения прав третьих лиц.
-5.3. Заказчик несёт ответственность за достоверность предоставляемой информации.
+5.1. Заказчик обязуется использовать Сервис исключительно законным способом и соблюдать условия настоящего Договора.
+5.2. Запрещается использовать Сервис для мошенничества, нарушения законодательства, распространения вредоносного программного обеспечения, нарушения прав третьих лиц или иных противоправных действий.
+5.3. Заказчик несёт ответственность за достоверность предоставляемой им информации и законность своих действий при использовании Сервиса.
 
 <b>6. Интеллектуальная собственность</b>
-6.1. Материалы охраняются законодательством об интеллектуальной собственности.
-6.2. Приобретение товара не означает передачу исключительных прав.
-6.3. Копирование, перепродажа, распространение запрещены.
+6.1. Материалы, размещённые в Сервисе, охраняются законодательством об интеллектуальной собственности.
+6.2. Приобретение товара или услуги не означает передачу Заказчику исключительных прав на соответствующие материалы.
+6.3. Копирование, перепродажа, распространение, публикация и передача материалов третьим лицам запрещены, если иное прямо не предусмотрено условиями конкретного товара или законодательством.
 
 <b>7. Права Исполнителя</b>
-7.1. Исполнитель вправе временно ограничить работу Сервиса для технических работ.
-7.2. Исполнитель вправе прекратить доступ при нарушении Договора.
-7.3. Исполнитель вправе изменять функциональность и условия с публикацией.
+7.1. Исполнитель вправе временно ограничить работу Сервиса для проведения технических работ, обновлений или устранения неисправностей.
+7.2. Исполнитель вправе ограничить или прекратить доступ Заказчика к Сервису при нарушении настоящего Договора или применимого законодательства.
+7.3. Исполнитель вправе изменять функциональность Сервиса, условия тарифов и настоящий Договор с публикацией актуальной редакции в Сервисе.
 
 <b>8. Ответственность</b>
-8.1. Исполнитель не гарантирует бесперебойную работу Сервиса.
-8.2. Исполнитель не несёт ответственности за сбои, вызванные третьими лицами.
-8.3. Заказчик самостоятельно несёт ответственность за использование товаров и услуг.
+8.1. Исполнитель не гарантирует бесперебойную работу Сервиса и достижение Заказчиком какого-либо конкретного результата, если такой результат прямо не предусмотрен условиями приобретённой услуги.
+8.2. Исполнитель не несёт ответственности за сбои, вызванные действиями третьих лиц, операторов связи, платёжных систем, техническими неисправностями или иными обстоятельствами, находящимися вне разумного контроля Исполнителя.
+8.3. Заказчик самостоятельно несёт ответственность за использование предоставленных товаров, материалов и услуг.
 
 <b>9. Конфиденциальность</b>
-9.1. Обработка данных — в соответствии с Политикой конфиденциальности.
-9.2. Исполнитель принимает разумные меры для защиты информации.
+9.1. Обработка персональных данных осуществляется в соответствии с отдельной Политикой конфиденциальности.
+9.2. Исполнитель принимает разумные технические и организационные меры для защиты информации Пользователей.
 
 <b>10. Заключительные положения</b>
-10.1. Актуальная редакция Договора публикуется в Сервисе.
-10.2. Продолжение использования означает принятие условий.
-10.3. По вопросам — в службу поддержки."""
+10.1. Актуальная редакция настоящего Договора публикуется в Сервисе.
+10.2. Продолжение использования Сервиса после публикации новой редакции означает принятие её условий в той мере, в какой это допускается применимым законодательством.
+10.3. По вопросам использования Сервиса Заказчик может обратиться в службу поддержки по указанным в Сервисе контактным данным."""
 
 
 LIABILITY_TEXT = (
@@ -202,7 +200,10 @@ async def on_handler_error(event: ErrorEvent):
         if event.update.message:
             await event.update.message.answer("⚠️ Произошла ошибка. Попробуй ещё раз или нажми /start.")
         elif event.update.callback_query:
-            await event.update.callback_query.message.answer("⚠️ Произошла ошибка. Попробуй ещё раз или нажми /start.")
+            await event.update.callback_query.answer()  # снимаем "часики" на кнопке
+            await event.update.callback_query.message.answer(
+                "⚠️ Произошла ошибка. Попробуй ещё раз или нажми /start."
+            )
     except Exception:
         pass
     return True
@@ -307,6 +308,7 @@ async def generate_order_number():
 # ПРОМОКОДЫ
 # ============================================
 async def get_promo(code: str):
+    """Возвращает (discount, uses_left) или None. НЕ списывает активацию."""
     async with aiosqlite.connect("nil_bots.db") as db:
         cursor = await db.execute(
             "SELECT discount, uses_left FROM promos WHERE code=?", (code.strip().upper(),)
@@ -314,6 +316,7 @@ async def get_promo(code: str):
         return await cursor.fetchone()
 
 async def consume_promo(code: str) -> bool:
+    """Атомарно списывает одну активацию. True — если списание прошло."""
     code = code.strip().upper()
     async with aiosqlite.connect("nil_bots.db") as db:
         cursor = await db.execute(
@@ -325,42 +328,34 @@ async def consume_promo(code: str) -> bool:
 # ============================================
 # РАСЧЁТ ЦЕНЫ
 # ============================================
-async def calculate_price(base_price: float, user_id: int, promo_code: str = None):
+async def calculate_price(base_price: float, user_id: int, promo_discount: int = 0, promo_code: str = None):
+    """Чистый расчёт цены. Промокод только ВАЛИДИРУЕТСЯ, списание — отдельно при подтверждении заказа."""
     async with aiosqlite.connect("nil_bots.db") as db:
         cursor = await db.execute("SELECT birthday, first_order FROM users WHERE id=?", (user_id,))
         user = await cursor.fetchone()
-    
+
     discount = 0
     reasons = []
-    
+
     if user and user[1] == 1:
         discount += 10
         reasons.append("первый заказ")
-    
+
     if user and user[0]:
         today = datetime.datetime.now().strftime("%d.%m")
         if user[0] == today:
             discount += 10
             reasons.append("день рождения")
 
-    promo_applied = None
-    if promo_code:
-        promo = await get_promo(promo_code)
-        if promo and promo[1] > 0:
-            if await consume_promo(promo_code):
-                discount += promo[0]
-                reasons.append(f"промокод {promo_code.strip().upper()}")
-                promo_applied = True
-            else:
-                promo_applied = False
-        else:
-            promo_applied = False
+    if promo_discount > 0:
+        discount += promo_discount
+        reasons.append(f"промокод {html.escape((promo_code or '').strip().upper())}")
 
     discount = min(discount, 20)
     final_price = round(base_price * (1 - discount / 100), 2)
     reason_str = f"\n🎁 Скидка {discount}% ({', '.join(reasons)})" if discount > 0 else ""
-    
-    return final_price, reason_str, promo_applied
+
+    return final_price, reason_str
 
 def get_status_emoji(status: str) -> str:
     return {
@@ -524,10 +519,10 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     await init_db()
     async with aiosqlite.connect("nil_bots.db") as db:
-        await db.execute("INSERT OR IGNORE INTO users (id, username) VALUES (?, ?)", 
+        await db.execute("INSERT OR IGNORE INTO users (id, username) VALUES (?, ?)",
                          (message.from_user.id, message.from_user.username))
         await db.commit()
-    
+
     if message.from_user.id == ADMIN_ID:
         await message.answer(tw("👑 <b>Админ-панель:</b>"), reply_markup=admin_menu(), parse_mode="HTML")
     else:
@@ -702,35 +697,48 @@ async def enter_promo(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "skip_promo", OrderState.waiting_for_promo)
 async def skip_promo(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    await process_promo_logic(call.message, state, promo_code=None)
+    await process_promo_logic(call.message, state, promo_code=None, user_id=call.from_user.id)
 
 @router.message(OrderState.waiting_for_promo)
 async def process_promo_msg(message: Message, state: FSMContext):
-    await process_promo_logic(message, state, promo_code=message.text.strip())
+    await process_promo_logic(message, state, promo_code=message.text.strip(), user_id=message.from_user.id)
 
-async def process_promo_logic(target, state: FSMContext, promo_code: str = None):
+async def process_promo_logic(target, state: FSMContext, promo_code: str = None, user_id: int = None):
+    """Показывает предпросмотр заказа. Промокод ТОЛЬКО проверяется (активация НЕ списывается).
+    Списание происходит один раз в confirm_and_create_order."""
     try:
         data = await state.get_data()
         total_base = data.get('base_price', 0) + data.get('addons_price', 0)
-        final_price, reason_str, promo_applied = await calculate_price(
-            total_base, target.from_user.id, promo_code
+
+        promo_discount = 0
+        normalized_code = None
+        if promo_code:
+            normalized_code = promo_code.strip().upper()
+            promo = await get_promo(normalized_code)
+            if not promo or promo[1] <= 0:
+                # Состояние НЕ меняем — пользователь остаётся в waiting_for_promo
+                # и может ввести код заново или нажать «Пропустить»
+                await target.answer(
+                    tw(f"❌ Промокод «{html.escape(normalized_code)}» недействителен или закончились активации.\n"
+                       "Попробуй другой код или нажми «⏭ Пропустить»."),
+                    reply_markup=promo_prompt_kb()
+                )
+                return
+            promo_discount = promo[0]
+
+        final_price, reason_str = await calculate_price(
+            total_base, user_id, promo_discount=promo_discount, promo_code=normalized_code
         )
 
-        if promo_applied is False:
-            await target.answer(
-                tw(f"❌ Промокод «{html.escape((promo_code or '').strip().upper())}» недействителен.\n"
-                   "Нажми «Пропустить», чтобы продолжить."),
-                reply_markup=promo_prompt_kb()
-            )
-            return
+        await state.update_data(
+            final_price=final_price, promo_reason=reason_str, promo_code=normalized_code
+        )
 
-        await state.update_data(final_price=final_price, promo_reason=reason_str)
-        
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Подтвердить заказ", callback_data="confirm_order")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_promo")]
         ])
-        
+
         addons_line = f"🧩 Доп. услуги: {html.escape(data.get('addons_label') or '')}\n" if data.get('addons_label') else ""
         tier_line = f"🖥 Тариф: {html.escape(data.get('server_tier_label') or '')}\n" if data.get('server_tier_label') else ""
 
@@ -756,26 +764,59 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None)
 
 @router.callback_query(F.data == "confirm_order", OrderState.confirming_order)
 async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
+    await call.answer()
     data = await state.get_data()
-    amount = data['final_price']
     user_id = call.from_user.id
-    
-    order_number = await generate_order_number()
+    total_base = data.get('base_price', 0) + data.get('addons_price', 0)
+    promo_code = data.get('promo_code')
+
+    # --- ФИНАЛЬНЫЙ расчёт цены и ОДНОРАЗОВОЕ списание промокода ---
+    promo_discount = 0
+    promo_note = ""
+    if promo_code:
+        promo = await get_promo(promo_code)
+        if promo and promo[1] > 0:
+            if await consume_promo(promo_code):
+                promo_discount = promo[0]
+            else:
+                promo_note = "\n\nℹ️ Промокод только что закончился — заказ оформлен без скидки по нему."
+        else:
+            promo_note = "\n\nℹ️ Промокод недействителен — заказ оформлен без скидки по нему."
+
+    amount, reason_str = await calculate_price(
+        total_base, user_id, promo_discount=promo_discount, promo_code=promo_code
+    )
+
     service_name = data.get('service_name', 'Заказ')
     details = data.get('details', '')
     package_label = data.get('package_label', '🤖 Только бот')
     server_tier_label = data.get('server_tier_label')
     addons_label = data.get('addons_label')
     user_contact = f"@{call.from_user.username}" if call.from_user.username else f"ID: {user_id}"
-    
-    async with aiosqlite.connect("nil_bots.db") as db_sqlite:
-        await db_sqlite.execute("""
-            INSERT INTO orders (order_number, user_id, service, details, price, status) 
-            VALUES (?, ?, ?, ?, ?, 'new')
-        """, (order_number, user_id, service_name, details, amount))
-        await db_sqlite.execute("UPDATE users SET first_order=0 WHERE id=?", (user_id,))
-        await db_sqlite.commit()
-    
+
+    # --- Сохранение в SQLite (с повтором при коллизии номера) ---
+    order_number = None
+    for _attempt in range(5):
+        candidate = await generate_order_number()
+        try:
+            async with aiosqlite.connect("nil_bots.db") as db_sqlite:
+                await db_sqlite.execute("""
+                    INSERT INTO orders (order_number, user_id, service, details, price, status)
+                    VALUES (?, ?, ?, ?, ?, 'new')
+                """, (candidate, user_id, service_name, details, amount))
+                await db_sqlite.execute("UPDATE users SET first_order=0 WHERE id=?", (user_id,))
+                await db_sqlite.commit()
+            order_number = candidate
+            break
+        except aiosqlite.IntegrityError:
+            continue  # номер занят — генерируем новый
+
+    if not order_number:
+        await call.message.answer("⚠️ Не удалось создать заказ. Нажми /start и попробуй ещё раз.")
+        await state.clear()
+        return
+
+    # --- Сохранение в Firebase (не должно ломать заказ для клиента) ---
     try:
         order_ref = firebase_db.collection("orders").document(order_number)
         order_ref.set({
@@ -800,37 +841,41 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         print(f"✅ Заказ {order_number} сохранён в Firebase")
     except Exception as e:
         print(f"❌ Ошибка Firebase: {e}")
-    
+
     await state.clear()
-    
+
     await call.message.answer(
         tw(
             f"🎉 <b>Заказ #{order_number} успешно создан!</b>\n\n"
             f"Я передал ваше ТЗ разработчику. В ближайшее время с вами свяжутся.\n\n"
-            f"📊 <b>Отслеживать статус заказа:</b>\n{SITE_URL}\n(номер: <b>{order_number}</b>)"
+            f"📊 <b>Отслеживать статус заказа:</b>\n{SITE_URL}\n(номер: <b>{order_number}</b>){promo_note}"
         ),
         reply_markup=main_menu(), parse_mode="HTML"
     )
-    
+
+    # --- Уведомление админу (любая ошибка НЕ должна показываться клиенту) ---
     plan_line = f"📦 План: {package_label}"
     if server_tier_label:
         plan_line += f"\n🖥 Тариф сервера: {server_tier_label}"
     if addons_label:
         plan_line += f"\n🧩 Доп. услуги: {addons_label}"
-    
-    await bot.send_message(
-        ADMIN_ID,
-        tw(
-            f"🔥 <b>НОВЫЙ ЗАКАЗ #{order_number}</b>\n\n"
-            f"👤 Клиент: {user_contact} (ID: {user_id})\n"
-            f"{plan_line}\n"
-            f"🛠 Услуга: {service_name}\n"
-            f"💬 ТЗ: {details}\n"
-            f"💵 Сумма: {amount}₽\n\n"
-            f"⚠️ Требуется связаться с клиентом!"
-        ),
-        parse_mode="HTML"
-    )
+
+    try:
+        await bot.send_message(
+            ADMIN_ID,
+            tw(
+                f"🔥 <b>НОВЫЙ ЗАКАЗ #{order_number}</b>\n\n"
+                f"👤 Клиент: {html.escape(user_contact)} (ID: {user_id})\n"
+                f"{html.escape(plan_line)}\n"
+                f"🛠 Услуга: {html.escape(service_name)}\n"
+                f"💬 ТЗ: {html.escape(details)}\n"
+                f"💵 Сумма: {amount}₽\n\n"
+                f"⚠️ Требуется связаться с клиентом!"
+            ),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"⚠️ Не удалось уведомить админа о заказе {order_number}: {type(e).__name__}: {e}")
 
 # ============================================
 # ПРОФИЛЬ
@@ -843,26 +888,26 @@ async def show_profile(call: CallbackQuery, state: FSMContext):
         cursor = await db.execute("SELECT username, birthday, first_order FROM users WHERE id=?", (user_id,))
         user = await cursor.fetchone()
         cursor_orders = await db.execute(
-            "SELECT order_number, service, price, status, created_at FROM orders WHERE user_id=? ORDER BY id DESC", 
+            "SELECT order_number, service, price, status, created_at FROM orders WHERE user_id=? ORDER BY id DESC",
             (user_id,)
         )
         orders = await cursor_orders.fetchall()
-    
+
     username = user[0] if user and user[0] else "Не указан"
     bday = user[1] if user and user[1] else "Не указан"
-    
+
     text = f"👤 <b>Ваш профиль:</b>\n🆔 ID: <code>{user_id}</code>\n📱 Username: @{username}\n🎂 День рождения: {bday}\n\n"
-    
+
     if orders:
         text += f"📦 <b>Ваши заказы ({len(orders)}):</b>\n"
         for o in orders:
             order_num, service, price, status, date = o
             status_emoji = get_status_emoji(status)
             short_date = date.split(' ')[0] if date else "Неизвестно"
-            text += f"\n🔹 <b>#{order_num}</b> ({short_date})\n   {service} | {price}₽\n   Статус: {status_emoji}"
+            text += f"\n🔹 <b>#{order_num}</b> ({short_date})\n   {html.escape(str(service))} | {price}₽\n   Статус: {status_emoji}"
     else:
         text += "📭 У вас пока нет заказов."
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎂 Изменить ДР", callback_data="set_bday")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
@@ -905,7 +950,7 @@ async def read_chat(call: CallbackQuery):
     async with aiosqlite.connect("nil_bots.db") as db:
         cursor = await db.execute("SELECT text, is_user FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 15", (user_id,))
         msgs = await cursor.fetchall()
-    history = "\n".join([f"{'👤 Клиент' if m[1] else '👑 Вы'}: {m[0]}" for m in reversed(msgs)])
+    history = "\n".join([f"{'👤 Клиент' if m[1] else '👑 Вы'}: {html.escape(str(m[0]))}" for m in reversed(msgs)])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Написать ответ", callback_data=f"reply_{user_id}")],
         [InlineKeyboardButton(text="🔙 К чатам", callback_data="admin_chats")]
@@ -928,7 +973,7 @@ async def admin_send_reply(message: Message, state: FSMContext):
         await state.clear()
         return
     try:
-        await bot.send_message(target_user_id, tw(f"👑 <b>Ответ от Nil Bots:</b>\n\n{message.text}"), parse_mode="HTML")
+        await bot.send_message(target_user_id, tw(f"👑 <b>Ответ от Nil Bots:</b>\n\n{html.escape(message.text)}"), parse_mode="HTML")
         async with aiosqlite.connect("nil_bots.db") as db:
             await db.execute("INSERT INTO messages (user_id, text, is_user) VALUES (?, ?, 0)", (target_user_id, message.text))
             await db.commit()
@@ -953,7 +998,7 @@ async def admin_promos(call: CallbackQuery):
     text = "🎟 <b>Управление промокодами:</b>\n\n"
     if promos:
         for code, discount, uses_left in promos:
-            text += f"• <code>{code}</code> — {discount}% (осталось: {uses_left})\n"
+            text += f"• <code>{html.escape(str(code))}</code> — {discount}% (осталось: {uses_left})\n"
     else:
         text += "Промокодов пока нет."
 
@@ -1012,7 +1057,7 @@ async def promo_uses_input(message: Message, state: FSMContext):
         await db.commit()
     await state.clear()
     await message.answer(
-        tw(f"✅ Промокод <b>{data['code']}</b> создан!\nСкидка: {data['discount']}%\nАктиваций: {uses}"),
+        tw(f"✅ Промокод <b>{html.escape(data['code'])}</b> создан!\nСкидка: {data['discount']}%\nАктиваций: {uses}"),
         reply_markup=admin_menu(), parse_mode="HTML"
     )
 
@@ -1023,12 +1068,16 @@ async def promo_uses_input(message: Message, state: FSMContext):
 async def support_msg(message: Message, state: FSMContext):
     if message.from_user.id == ADMIN_ID:
         return
+    # Не перехватываем сообщения, пока пользователь оформляет заказ или меняет ДР
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
     async with aiosqlite.connect("nil_bots.db") as db:
-        await db.execute("INSERT INTO messages (user_id, text, is_user) VALUES (?, ?, 1)", 
+        await db.execute("INSERT INTO messages (user_id, text, is_user) VALUES (?, ?, 1)",
                          (message.from_user.id, message.text))
         await db.commit()
     try:
-        await bot.send_message(ADMIN_ID, f"💬 <b>Сообщение от {message.from_user.full_name}</b> (ID: {message.from_user.id}):\n\n{message.text}", parse_mode="HTML")
+        await bot.send_message(ADMIN_ID, f"💬 <b>Сообщение от {html.escape(message.from_user.full_name)}</b> (ID: {message.from_user.id}):\n\n{html.escape(message.text)}", parse_mode="HTML")
     except Exception:
         pass
     await message.answer(tw("✅ Отправлено! Администратор ответит вам в ближайшее время."))
