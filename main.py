@@ -4,6 +4,7 @@ import random
 import os
 import json
 import html
+import traceback
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ErrorEvent
@@ -193,7 +194,7 @@ router = Router()
 dp.include_router(router)
 
 # ============================================
-# FIRESTORE-ХЕЛПЕРЫ (промокоды + пользователи + заказы)
+# FIRESTORE-ХЕЛПЕРЫ
 # ============================================
 def _fb_promo_get(code: str):
     snap = firebase_db.collection("promos").document(code).get()
@@ -206,20 +207,16 @@ async def get_promo(code: str):
     return await asyncio.to_thread(_fb_promo_get, code.strip().upper())
 
 def _fb_promo_consume(code: str) -> bool:
+    """Атомарное списание активации через Increment (без транзакций)."""
     ref = firebase_db.collection("promos").document(code)
-
-    @firestore.transactional
-    def _txn(transaction, doc_ref):
-        snap = doc_ref.get(transaction)
-        if not snap.exists:
-            return False
-        left = int((snap.to_dict() or {}).get("uses_left", 0))
-        if left <= 0:
-            return False
-        transaction.update(doc_ref, {"uses_left": left - 1})
-        return True
-
-    return _txn(firebase_db.transaction(), ref)
+    snap = ref.get()
+    if not snap.exists:
+        return False
+    left = int((snap.to_dict() or {}).get("uses_left", 0))
+    if left <= 0:
+        return False
+    ref.update({"uses_left": firestore.Increment(-1)})
+    return True
 
 async def consume_promo(code: str) -> bool:
     return await asyncio.to_thread(_fb_promo_consume, code.strip().upper())
@@ -295,6 +292,7 @@ def _mask_contact(contact: str) -> str:
 @router.errors()
 async def on_handler_error(event: ErrorEvent):
     print(f"🔥 ХЕНДЛЕР УПАЛ: {type(event.exception).__name__}: {event.exception}")
+    print(traceback.format_exc())
     try:
         if event.update.message:
             await event.update.message.answer("⚠️ Произошла ошибка. Попробуй ещё раз или нажми /start.")
@@ -308,7 +306,7 @@ async def on_handler_error(event: ErrorEvent):
     return True
 
 # ============================================
-# РЕЖИМ ТЕХ. РАБОТ (общий с сайтом через Firebase)
+# РЕЖИМ ТЕХ. РАБОТ
 # ============================================
 MAINTENANCE = {"on": False}
 MAIN_LOOP = None
@@ -347,6 +345,7 @@ def _settings_listener(snapshot, changes, read_time):
             MAIN_LOOP.call_soon_threadsafe(MAIN_LOOP.create_task, broadcast_maintenance())
     except Exception as e:
         print(f"⚠️ Ошибка в settings_listener: {e}")
+        print(traceback.format_exc())
 
 def start_settings_listener():
     global MAIN_LOOP
@@ -397,7 +396,7 @@ async def generate_order_number():
     return f"NB-{int(datetime.datetime.now().timestamp()) % 1000000}"
 
 # ============================================
-# РАСЧЁТ ЦЕНЫ (пользователь — из Firestore)
+# РАСЧЁТ ЦЕНЫ (ВАРИАНТ А: потолок 100%)
 # ============================================
 async def calculate_price(base_price: float, user_id: int, promo_discount: int = 0, promo_code: str = None):
     user = await get_user(user_id)
@@ -420,8 +419,10 @@ async def calculate_price(base_price: float, user_id: int, promo_discount: int =
         discount += promo_discount
         reasons.append(f"промокод {html.escape((promo_code or '').strip().upper())}")
 
-    discount = min(discount, 20)
+    discount = min(discount, 100)
     final_price = round(base_price * (1 - discount / 100), 2)
+    if final_price < 0:
+        final_price = 0.0
     reason_str = f"\n🎁 Скидка {discount}% ({', '.join(reasons)})" if discount > 0 else ""
 
     return final_price, reason_str
@@ -818,6 +819,7 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None,
         await state.set_state(OrderState.confirming_order)
     except Exception as e:
         print(f"❌ Ошибка в process_promo_logic: {type(e).__name__}: {e}")
+        print(traceback.format_exc())
         try:
             await target.answer("⚠️ Произошла ошибка. Нажми /start и попробуй ещё раз.")
         except Exception:
@@ -831,17 +833,23 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     total_base = data.get('base_price', 0) + data.get('addons_price', 0)
     promo_code = data.get('promo_code')
 
+    # --- Промокод: проверка и списание ПОД ЗАЩИТОЙ (падение не убивает заказ) ---
     promo_discount = 0
     promo_note = ""
     if promo_code:
-        promo = await get_promo(promo_code)
-        if promo and promo[1] > 0:
-            if await consume_promo(promo_code):
-                promo_discount = promo[0]
+        try:
+            promo = await get_promo(promo_code)
+            if promo and promo[1] > 0:
+                if await consume_promo(promo_code):
+                    promo_discount = promo[0]
+                else:
+                    promo_note = "\n\nℹ️ Промокод только что закончился — заказ оформлен без скидки по нему."
             else:
-                promo_note = "\n\nℹ️ Промокод только что закончился — заказ оформлен без скидки по нему."
-        else:
-            promo_note = "\n\nℹ️ Промокод недействителен — заказ оформлен без скидки по нему."
+                promo_note = "\n\nℹ️ Промокод недействителен — заказ оформлен без скидки по нему."
+        except Exception as e:
+            print(f"⚠️ Ошибка промокода {promo_code}: {type(e).__name__}: {e}")
+            print(traceback.format_exc())
+            promo_note = "\n\n⚠️ Промокод не применён из-за технической ошибки (заказ создан без него)."
 
     amount, reason_str = await calculate_price(
         total_base, user_id, promo_discount=promo_discount, promo_code=promo_code
@@ -857,6 +865,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     order_number = await generate_order_number()
     now_iso = datetime.datetime.now().isoformat()
 
+    # --- ГЛАВНАЯ запись заказа: если упала — заказ невозможен, сообщаем честно ---
     try:
         firebase_db.collection("orders").document(order_number).set({
             "number": order_number,
@@ -879,8 +888,16 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         })
         print(f"✅ Заказ {order_number} сохранён в Firebase")
     except Exception as e:
-        print(f"❌ Ошибка Firebase: {e}")
+        print(f"❌ КРИТИЧЕСКАЯ ошибка создания заказа: {type(e).__name__}: {e}")
+        print(traceback.format_exc())
+        await state.clear()
+        await call.message.answer(
+            "❌ Не удалось сохранить заказ в базе. Пожалуйста, нажми /start и попробуй ещё раз. "
+            "Если ошибка повторится — напиши в поддержку."
+        )
+        return
 
+    # --- Публичная карточка (не критично) ---
     try:
         firebase_db.collection("orders_public").document(order_number).set({
             "number": order_number,
@@ -894,12 +911,14 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         })
         print(f"✅ Публичная карточка {order_number} сохранена")
     except Exception as e:
-        print(f"⚠️ orders_public ошибка: {e}")
+        print(f"⚠️ orders_public ошибка: {type(e).__name__}: {e}")
+        print(traceback.format_exc())
 
+    # --- first_order = 0 (не критично) ---
     try:
         await asyncio.to_thread(_fb_user_set, user_id, {"first_order": 0})
     except Exception as e:
-        print(f"⚠️ Не удалось обновить first_order: {e}")
+        print(f"⚠️ Не удалось обновить first_order: {type(e).__name__}: {e}")
 
     await state.clear()
 
@@ -936,7 +955,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         print(f"⚠️ Не удалось уведомить админа о заказе {order_number}: {type(e).__name__}: {e}")
 
 # ============================================
-# ПРОФИЛЬ (данные из Firestore)
+# ПРОФИЛЬ
 # ============================================
 @router.callback_query(F.data == "profile")
 async def show_profile(call: CallbackQuery, state: FSMContext):
