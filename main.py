@@ -1,4 +1,3 @@
-
 import asyncio
 import datetime
 import random
@@ -194,7 +193,7 @@ router = Router()
 dp.include_router(router)
 
 # ============================================
-# FIRESTORE-ХЕЛПЕРЫ (промокоды + пользователи)
+# FIRESTORE-ХЕЛПЕРЫ (промокоды + пользователи + заказы)
 # ============================================
 def _fb_promo_get(code: str):
     snap = firebase_db.collection("promos").document(code).get()
@@ -282,6 +281,14 @@ def _fb_orders_of(user_id: int):
     out.sort(key=lambda o: o.get("created_at") or "", reverse=True)
     return out
 
+def _mask_contact(contact: str) -> str:
+    c = (contact or "").strip()
+    if c.startswith("@"):
+        c = c[1:]
+    if len(c) <= 3:
+        return "*" * max(len(c), 1)
+    return c[:2] + "*" * max(len(c) - 4, 1) + c[-2:]
+
 # ============================================
 # ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 # ============================================
@@ -326,6 +333,7 @@ async def broadcast_maintenance():
             sent += 1
         except Exception:
             pass
+        await asyncio.sleep(0.05)
     print(f"📢 Оповещение о тех. работах: {sent}/{len(user_ids)}")
 
 def _settings_listener(snapshot, changes, read_time):
@@ -367,6 +375,10 @@ class AddPromoState(StatesGroup):
     waiting_for_code = State()
     waiting_for_discount = State()
     waiting_for_uses = State()
+
+class BroadcastState(StatesGroup):
+    waiting_text = State()
+    confirming = State()
 
 # ============================================
 # БАЗА ДАННЫХ (SQLite — только чаты админа)
@@ -443,6 +455,7 @@ def docs_kb():
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💬 Чаты с клиентами", callback_data="admin_chats")],
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="🎟 Промокоды", callback_data="admin_promos")],
         [InlineKeyboardButton(text="📄 Документация", callback_data="docs")]
     ])
@@ -842,6 +855,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     user_contact = f"@{call.from_user.username}" if call.from_user.username else f"ID: {user_id}"
 
     order_number = await generate_order_number()
+    now_iso = datetime.datetime.now().isoformat()
 
     try:
         firebase_db.collection("orders").document(order_number).set({
@@ -860,12 +874,27 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
             "price": amount,
             "status": "new",
             "payment_status": "waiting_manual_payment",
-            "date": datetime.datetime.now().isoformat(),
-            "created_at": datetime.datetime.now().isoformat()
+            "date": now_iso,
+            "created_at": now_iso
         })
         print(f"✅ Заказ {order_number} сохранён в Firebase")
     except Exception as e:
         print(f"❌ Ошибка Firebase: {e}")
+
+    try:
+        firebase_db.collection("orders_public").document(order_number).set({
+            "number": order_number,
+            "status": "new",
+            "price": amount,
+            "package_label": package_label,
+            "server_tier_label": server_tier_label,
+            "client_masked": _mask_contact(user_contact),
+            "created_at": now_iso,
+            "date": now_iso,
+        })
+        print(f"✅ Публичная карточка {order_number} сохранена")
+    except Exception as e:
+        print(f"⚠️ orders_public ошибка: {e}")
 
     try:
         await asyncio.to_thread(_fb_user_set, user_id, {"first_order": 0})
@@ -953,7 +982,7 @@ async def save_bday(message: Message, state: FSMContext):
     await message.answer(tw("✅ День рождения сохранён!"), reply_markup=main_menu())
 
 # ============================================
-# АДМИНКА
+# АДМИНКА: ЧАТЫ
 # ============================================
 @router.callback_query(F.data == "admin_chats")
 async def admin_chats(call: CallbackQuery):
@@ -1013,7 +1042,99 @@ async def cancel_state(message: Message, state: FSMContext):
     await message.answer(tw("❌ Действие отменено."), reply_markup=kb)
 
 # ============================================
-# ПРОМОКОДЫ (админка, Firestore)
+# АДМИНКА: РАССЫЛКА
+# ============================================
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast_start(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("❌ Недоступно", show_alert=True)
+        return
+    await call.answer()
+    await state.clear()
+    await call.message.edit_text(
+        tw(
+            "📢 <b>Рассылка</b>\n\n"
+            "Напиши текст сообщения — его получат все пользователи бота.\n\n"
+            "Можно использовать разметку:\n"
+            "<b>жирный</b>, <i>курсив</i>, <u>подчёркнутый</u>\n"
+            "<a href=\"https://example.com\">ссылка</a>\n\n"
+            "(отмена — /cancel)"
+        ),
+        reply_markup=back_kb("start_back_to_main"), parse_mode="HTML"
+    )
+    await state.set_state(BroadcastState.waiting_text)
+
+@router.message(BroadcastState.waiting_text)
+async def broadcast_text_received(message: Message, state: FSMContext):
+    text = message.text
+    await state.update_data(broadcast_text=text)
+    users = await asyncio.to_thread(_fb_user_ids)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="broadcast_confirm")],
+        [InlineKeyboardButton(text="✏️ Переписать", callback_data="broadcast_rewrite")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")],
+    ])
+    preview = f"📢 <b>Предпросмотр рассылки:</b>\n\n{text}\n\n👥 Получателей: <b>{len(users)}</b>"
+    try:
+        await message.answer(preview, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await message.answer(
+            f"📢 Предпросмотр рассылки:\n\n{text}\n\n👥 Получателей: {len(users)}\n\n"
+            "⚠️ В тексте ошибка разметки! При отправке сообщение уйдёт обычным текстом.",
+            reply_markup=kb
+        )
+    await state.set_state(BroadcastState.confirming)
+
+@router.callback_query(F.data == "broadcast_rewrite", BroadcastState.confirming)
+async def broadcast_rewrite(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await call.message.edit_text(tw("✏️ Напиши новый текст рассылки:"), reply_markup=back_kb("start_back_to_main"))
+    await state.set_state(BroadcastState.waiting_text)
+
+@router.callback_query(F.data == "broadcast_cancel", BroadcastState.confirming)
+async def broadcast_cancel(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await state.clear()
+    await call.message.edit_text(tw("❌ Рассылка отменена."), reply_markup=admin_menu())
+
+@router.callback_query(F.data == "broadcast_confirm", BroadcastState.confirming)
+async def broadcast_confirm(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    data = await state.get_data()
+    text = data.get("broadcast_text")
+    if not text:
+        await state.clear()
+        await call.message.edit_text(tw("❌ Текст не найден. Начни заново."), reply_markup=admin_menu())
+        return
+    await state.clear()
+    users = await asyncio.to_thread(_fb_user_ids)
+    total = len([u for u in users if u != ADMIN_ID])
+    await call.message.edit_text(tw(f"📢 Рассылка начата...\n👥 Получателей: {total}"), reply_markup=None)
+
+    sent = 0
+    failed = 0
+    for uid in users:
+        if uid == ADMIN_ID:
+            continue
+        try:
+            try:
+                await bot.send_message(uid, text, parse_mode="HTML")
+            except Exception:
+                await bot.send_message(uid, text)
+            sent += 1
+        except Exception:
+            failed += 1
+        await asyncio.sleep(0.05)
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"✅ <b>Рассылка завершена!</b>\n\n📤 Отправлено: {sent}\n⚠️ Не доставлено: {failed}\n👥 Всего: {total}",
+        parse_mode="HTML",
+        reply_markup=admin_menu()
+    )
+
+# ============================================
+# АДМИНКА: ПРОМОКОДЫ
 # ============================================
 @router.callback_query(F.data == "admin_promos")
 async def admin_promos(call: CallbackQuery):
