@@ -5,12 +5,14 @@ import os
 import json
 import html
 import traceback
+import uuid
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ErrorEvent
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import aiosqlite
+import aiohttp
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -25,7 +27,7 @@ PRICE_SERVER_BASIC = float(os.environ.get("PRICE_SERVER_BASIC", "300"))
 
 ADDONS = {
     "support_bot": {
-        "label": "🛟 Отдельный бот тех. поддержки",
+        "label": " Отдельный бот тех. поддержки",
         "price": float(os.environ.get("PRICE_ADDON_SUPPORT", "99")),
     },
     "priority": {
@@ -36,6 +38,11 @@ ADDONS = {
 
 SITE_URL = "https://nil-bots-site-with-bot.vercel.app/"
 SUPPORT_URL = "https://t.me/nilbots_support_bot"
+
+# RollyPay
+ROLLY_API_KEY = os.environ.get("ROLLY_API_KEY", "")
+ROLLY_API_URL = os.environ.get("ROLLY_API_URL", "https://rollypay.io/api/v1")
+PAYMENT_CHECK_INTERVAL = 30  # секунд между проверками
 
 # ============================================
 # ПОЛНЫЕ ТЕКСТЫ ДОКУМЕНТОВ
@@ -207,7 +214,6 @@ async def get_promo(code: str):
     return await asyncio.to_thread(_fb_promo_get, code.strip().upper())
 
 def _fb_promo_consume(code: str) -> bool:
-    """Атомарное списание активации через Increment (без транзакций)."""
     ref = firebase_db.collection("promos").document(code)
     snap = ref.get()
     if not snap.exists:
@@ -278,6 +284,16 @@ def _fb_orders_of(user_id: int):
     out.sort(key=lambda o: o.get("created_at") or "", reverse=True)
     return out
 
+def _fb_get_order_by_number(number: str):
+    """Возвращает (doc_id, data) заказа по номеру или (None, None)."""
+    try:
+        docs = firebase_db.collection("orders").where("number", "==", number).limit(1).stream()
+        for d in docs:
+            return d.id, d.to_dict()
+    except Exception as e:
+        print(f"⚠️ Ошибка поиска заказа {number}: {e}")
+    return None, None
+
 def _mask_contact(contact: str) -> str:
     c = (contact or "").strip()
     if c.startswith("@"):
@@ -287,11 +303,217 @@ def _mask_contact(contact: str) -> str:
     return c[:2] + "*" * max(len(c) - 4, 1) + c[-2:]
 
 # ============================================
+# ROLLYPAY ИНТЕГРАЦИЯ
+# ============================================
+async def create_rollypay_payment(order_number: str, amount: float, description: str):
+    """Создаёт платёж в RollyPay. Возвращает (pay_url, payment_id) или (None, None)."""
+    if not ROLLY_API_KEY:
+        print(" ROLLY_API_KEY не задан — оплата недоступна")
+        return None, None
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": ROLLY_API_KEY,
+        "X-Nonce": str(uuid.uuid4())
+    }
+
+    data = {
+        "amount": f"{amount:.2f}",
+        "payment_currency": "RUB",
+        "order_id": order_number,
+        "description": description
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{ROLLY_API_URL}/payments", headers=headers, json=data, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    pay_url = result.get("pay_url")
+                    payment_id = result.get("payment_id")
+                    print(f"✅ Платёж {payment_id} создан для заказа {order_number}")
+                    return pay_url, payment_id
+                else:
+                    error = await resp.text()
+                    print(f"❌ Ошибка создания платежа: {resp.status} - {error}")
+                    return None, None
+    except Exception as e:
+        print(f"❌ Ошибка RollyPay: {type(e).__name__}: {e}")
+        print(traceback.format_exc())
+        return None, None
+
+async def check_rollypay_payment_status(payment_id: str):
+    """Проверяет статус платежа. Возвращает статус или None."""
+    if not ROLLY_API_KEY or not payment_id:
+        return None
+
+    headers = {
+        "X-API-Key": ROLLY_API_KEY,
+        "X-Nonce": str(uuid.uuid4())
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{ROLLY_API_URL}/payments/{payment_id}", headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    return result.get("status")
+                return None
+    except Exception as e:
+        print(f"⚠️ Ошибка проверки статуса {payment_id}: {e}")
+        return None
+
+# Хранилище активных проверок оплат: {order_number: {"payment_id": ..., "user_id": ...}}
+payment_tasks = {}
+
+async def payment_polling_task():
+    """Фоновая задача: проверяет статусы оплат каждые PAYMENT_CHECK_INTERVAL секунд."""
+    print(f"🔄 Запущена фоновая проверка оплат (интервал {PAYMENT_CHECK_INTERVAL}с)")
+    while True:
+        try:
+            await asyncio.sleep(PAYMENT_CHECK_INTERVAL)
+            if not payment_tasks:
+                continue
+
+            for order_number, task_data in list(payment_tasks.items()):
+                payment_id = task_data.get("payment_id")
+                if not payment_id:
+                    continue
+
+                status = await check_rollypay_payment_status(payment_id)
+
+                if status == "paid":
+                    print(f"💰 Заказ {order_number} — оплата получена!")
+                    await confirm_order_payment(order_number, task_data)
+                    payment_tasks.pop(order_number, None)
+                elif status in ["canceled", "expired"]:
+                    print(f"️ Заказ {order_number} — оплата {status}")
+                    await cancel_order_payment(order_number, task_data)
+                    payment_tasks.pop(order_number, None)
+        except Exception as e:
+            print(f"❌ Ошибка в payment_polling_task: {e}")
+            print(traceback.format_exc())
+
+async def confirm_order_payment(order_number: str, task_data: dict):
+    """Подтверждает заказ после успешной оплаты."""
+    try:
+        doc_id, order_data = await asyncio.to_thread(_fb_get_order_by_number, order_number)
+        if not order_data:
+            print(f"⚠️ Заказ {order_number} не найден при подтверждении")
+            return
+
+        user_id = order_data.get("user_id")
+
+        # Обновляем заказ
+        firebase_db.collection("orders").document(doc_id).update({
+            "status": "new",
+            "payment_status": "paid",
+            "paid_at": datetime.datetime.now().isoformat()
+        })
+
+        # Обновляем публичную версию
+        try:
+            firebase_db.collection("orders_public").document(order_number).update({
+                "status": "new"
+            })
+        except Exception as e:
+            print(f"⚠️ orders_public ошибка: {e}")
+
+        # Уведомляем клиента
+        if user_id:
+            try:
+                await bot.send_message(
+                    user_id,
+                    f"✅ <b>Заказ #{order_number} оплачен!</b>\n\n"
+                    f"💵 Сумма: {order_data.get('price', 0)}₽\n"
+                    f" Статус: <b>Новый</b> (принят в работу)\n\n"
+                    f"Я передал ТЗ разработчику. В ближайшее время с вами свяжутся!\n\n"
+                    f"📊 Отслеживать статус: {SITE_URL}",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                print(f"⚠️ Не удалось уведомить клиента {user_id}: {e}")
+
+        # Уведомляем админа
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"💰 <b>Заказ #{order_number} ОПЛАЧЕН!</b>\n\n"
+                f" Клиент: {order_data.get('client', '—')}\n"
+                f" Сумма: {order_data.get('price', 0)}₽\n"
+                f" Услуга: {order_data.get('service', '—')}\n\n"
+                f"✅ Можно начинать работу!",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"⚠️ Не удалось уведомить админа: {e}")
+
+        print(f"✅ Заказ {order_number} подтверждён (оплата получена)")
+
+    except Exception as e:
+        print(f"❌ Ошибка подтверждения заказа {order_number}: {e}")
+        print(traceback.format_exc())
+
+async def cancel_order_payment(order_number: str, task_data: dict):
+    """Отменяет заказ если оплата не прошла."""
+    try:
+        doc_id, order_data = await asyncio.to_thread(_fb_get_order_by_number, order_number)
+        if not order_data:
+            return
+
+        user_id = order_data.get("user_id")
+
+        # Помечаем заказ как неоплаченный
+        if doc_id:
+            firebase_db.collection("orders").document(doc_id).update({
+                "status": "cancelled",
+                "payment_status": "failed"
+            })
+
+        if user_id:
+            try:
+                await bot.send_message(
+                    user_id,
+                    f"⚠️ <b>Заказ #{order_number}</b>\n\n"
+                    f"Оплата не была подтверждена (платёж отменён или истёк).\n\n"
+                    f"Если у вас возникли проблемы — напишите в поддержку: @nilbots_support_bot",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+        print(f"⚠️ Заказ {order_number} отменён (оплата не получена)")
+
+    except Exception as e:
+        print(f"❌ Ошибка отмены заказа {order_number}: {e}")
+
+async def restore_pending_payments():
+    """При старте бота восстанавливает polling для неоплаченных заказов."""
+    try:
+        docs = firebase_db.collection("orders").where("status", "==", "waiting_payment").stream()
+        count = 0
+        for d in docs:
+            data = d.to_dict()
+            payment_id = data.get("payment_id")
+            order_number = data.get("number")
+            user_id = data.get("user_id")
+            if payment_id and order_number:
+                payment_tasks[order_number] = {
+                    "payment_id": payment_id,
+                    "user_id": user_id
+                }
+                count += 1
+        if count > 0:
+            print(f"🔄 Восстановлено {count} ожидающих оплат")
+    except Exception as e:
+        print(f"⚠️ Ошибка восстановления оплат: {e}")
+
+# ============================================
 # ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 # ============================================
 @router.errors()
 async def on_handler_error(event: ErrorEvent):
-    print(f"🔥 ХЕНДЛЕР УПАЛ: {type(event.exception).__name__}: {event.exception}")
+    print(f" ХЕНДЛЕР УПАЛ: {type(event.exception).__name__}: {event.exception}")
     print(traceback.format_exc())
     try:
         if event.update.message:
@@ -332,7 +554,7 @@ async def broadcast_maintenance():
         except Exception:
             pass
         await asyncio.sleep(0.05)
-    print(f"📢 Оповещение о тех. работах: {sent}/{len(user_ids)}")
+    print(f" Оповещение о тех. работах: {sent}/{len(user_ids)}")
 
 def _settings_listener(snapshot, changes, read_time):
     try:
@@ -345,13 +567,12 @@ def _settings_listener(snapshot, changes, read_time):
             MAIN_LOOP.call_soon_threadsafe(MAIN_LOOP.create_task, broadcast_maintenance())
     except Exception as e:
         print(f"⚠️ Ошибка в settings_listener: {e}")
-        print(traceback.format_exc())
 
 def start_settings_listener():
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_event_loop()
     firebase_db.collection("settings").document("main").on_snapshot(_settings_listener)
-    print("👂 Listener тех. работ запущен")
+    print(" Listener тех. работ запущен")
 
 # ============================================
 # СОСТОЯНИЯ
@@ -396,7 +617,7 @@ async def generate_order_number():
     return f"NB-{int(datetime.datetime.now().timestamp()) % 1000000}"
 
 # ============================================
-# РАСЧЁТ ЦЕНЫ (ВАРИАНТ А: потолок 100%)
+# РАСЧЁТ ЦЕНЫ (потолок 100%)
 # ============================================
 async def calculate_price(base_price: float, user_id: int, promo_discount: int = 0, promo_code: str = None):
     user = await get_user(user_id)
@@ -429,8 +650,12 @@ async def calculate_price(base_price: float, user_id: int, promo_discount: int =
 
 def get_status_emoji(status: str) -> str:
     return {
-        "new": "🟡 Создан", "working": "🔵 В работе", "done": "🟢 Готов",
-        "cancelled": "🔴 Отменен", "closed": "⚫ Закрыт",
+        "new": "🟡 Создан",
+        "waiting_payment": "⏳ Ожидает оплаты",
+        "working": " В работе",
+        "done": " Готов",
+        "cancelled": " Отменен",
+        "closed": "⚫ Закрыт",
     }.get(status, "❓ Неизвестно")
 
 # ============================================
@@ -440,7 +665,7 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛠 Заказать разработку", callback_data="order_start")],
         [InlineKeyboardButton(text="👤 Мой профиль и заказы", callback_data="profile")],
-        [InlineKeyboardButton(text="📄 Документация", callback_data="docs")],
+        [InlineKeyboardButton(text=" Документация", callback_data="docs")],
         [InlineKeyboardButton(text="🌐 Наш сайт", url=SITE_URL)],
         [InlineKeyboardButton(text="💬 Техподдержка", url=SUPPORT_URL)]
     ])
@@ -450,7 +675,7 @@ def docs_kb():
         [InlineKeyboardButton(text="🔒 Политика конфиденциальности", callback_data="doc_privacy")],
         [InlineKeyboardButton(text="📄 Публичная оферта", callback_data="doc_offer")],
         [InlineKeyboardButton(text="⚠️ Ограничение ответственности", callback_data="docs_liability")],
-        [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
+        [InlineKeyboardButton(text=" В главное меню", callback_data="start_back_to_main")]
     ])
 
 def admin_menu():
@@ -469,7 +694,7 @@ def back_kb(callback_data: str):
 def addons_kb(selected: list):
     rows = []
     for key, addon in ADDONS.items():
-        mark = "✅" if key in selected else "⬜"
+        mark = "✅" if key in selected else ""
         rows.append([InlineKeyboardButton(
             text=f"{mark} {addon['label']} (+{addon['price']:.0f}₽)",
             callback_data=f"add_{key}"
@@ -517,7 +742,7 @@ async def send_document_text(message: Message, text: str):
 async def show_package_screen(message, state, edit=False):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 Только бот", callback_data="pkg_bot_only")],
-        [InlineKeyboardButton(text="🤖+ Бот + Сервер", callback_data="pkg_bot_server")],
+        [InlineKeyboardButton(text="+ Бот + Сервер", callback_data="pkg_bot_server")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
     ])
     text = "🛠 <b>Что именно вы хотите заказать?</b>"
@@ -689,7 +914,7 @@ async def order_start(call: CallbackQuery, state: FSMContext):
 async def pkg_bot_only(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await state.update_data(
-        package="bot_only", package_label="🤖 Только бот",
+        package="bot_only", package_label=" Только бот",
         server_tier=None, server_tier_label=None,
         base_price=PRICE_BOT_ONLY, service_name="Разработка бота",
         addons=[], addons_price=0.0, addons_label=None
@@ -798,7 +1023,7 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None,
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Подтвердить заказ", callback_data="confirm_order")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_promo")]
+            [InlineKeyboardButton(text=" Назад", callback_data="nav_promo")]
         ])
 
         addons_line = f"🧩 Доп. услуги: {html.escape(data.get('addons_label') or '')}\n" if data.get('addons_label') else ""
@@ -811,7 +1036,7 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None,
                 f"{tier_line}"
                 f"{addons_line}"
                 f"🛠 Услуга: {html.escape(data.get('service_name', 'Заказ'))}\n"
-                f"📝 ТЗ: {html.escape(data.get('details', '(не указано)'))}\n\n"
+                f" ТЗ: {html.escape(data.get('details', '(не указано)'))}\n\n"
                 f"💰 <b>Итоговая цена: {final_price}₽</b>{reason_str}"
             ),
             reply_markup=kb, parse_mode="HTML"
@@ -833,7 +1058,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     total_base = data.get('base_price', 0) + data.get('addons_price', 0)
     promo_code = data.get('promo_code')
 
-    # --- Промокод: проверка и списание ПОД ЗАЩИТОЙ (падение не убивает заказ) ---
+    # --- Промокод ---
     promo_discount = 0
     promo_note = ""
     if promo_code:
@@ -848,8 +1073,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
                 promo_note = "\n\nℹ️ Промокод недействителен — заказ оформлен без скидки по нему."
         except Exception as e:
             print(f"⚠️ Ошибка промокода {promo_code}: {type(e).__name__}: {e}")
-            print(traceback.format_exc())
-            promo_note = "\n\n⚠️ Промокод не применён из-за технической ошибки (заказ создан без него)."
+            promo_note = "\n\n⚠️ Промокод не применён из-за технической ошибки."
 
     amount, reason_str = await calculate_price(
         total_base, user_id, promo_discount=promo_discount, promo_code=promo_code
@@ -857,7 +1081,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
 
     service_name = data.get('service_name', 'Заказ')
     details = data.get('details', '')
-    package_label = data.get('package_label', '🤖 Только бот')
+    package_label = data.get('package_label', ' Только бот')
     server_tier_label = data.get('server_tier_label')
     addons_label = data.get('addons_label')
     user_contact = f"@{call.from_user.username}" if call.from_user.username else f"ID: {user_id}"
@@ -865,7 +1089,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     order_number = await generate_order_number()
     now_iso = datetime.datetime.now().isoformat()
 
-    # --- ГЛАВНАЯ запись заказа: если упала — заказ невозможен, сообщаем честно ---
+    # --- 1. Создаём заказ со статусом waiting_payment ---
     try:
         firebase_db.collection("orders").document(order_number).set({
             "number": order_number,
@@ -881,27 +1105,43 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
             "addons_label": addons_label,
             "desc": details,
             "price": amount,
-            "status": "new",
-            "payment_status": "waiting_manual_payment",
+            "status": "waiting_payment",
+            "payment_status": "waiting_payment",
+            "payment_id": None,
             "date": now_iso,
             "created_at": now_iso
         })
-        print(f"✅ Заказ {order_number} сохранён в Firebase")
+        print(f"✅ Заказ {order_number} создан (ожидает оплаты)")
     except Exception as e:
         print(f"❌ КРИТИЧЕСКАЯ ошибка создания заказа: {type(e).__name__}: {e}")
         print(traceback.format_exc())
         await state.clear()
         await call.message.answer(
-            "❌ Не удалось сохранить заказ в базе. Пожалуйста, нажми /start и попробуй ещё раз. "
-            "Если ошибка повторится — напиши в поддержку."
+            "❌ Не удалось сохранить заказ в базе. Пожалуйста, нажми /start и попробуй ещё раз."
         )
         return
 
-    # --- Публичная карточка (не критично) ---
+    # --- 2. Создаём платёж в RollyPay ---
+    pay_url, payment_id = await create_rollypay_payment(
+        order_number=order_number,
+        amount=amount,
+        description=f"Заказ #{order_number} — {service_name}"
+    )
+
+    # Сохраняем payment_id в заказе
+    if payment_id:
+        try:
+            firebase_db.collection("orders").document(order_number).update({
+                "payment_id": payment_id
+            })
+        except Exception as e:
+            print(f"⚠️ Не удалось сохранить payment_id: {e}")
+
+    # --- 3. Публичная карточка (пока со статусом waiting) ---
     try:
         firebase_db.collection("orders_public").document(order_number).set({
             "number": order_number,
-            "status": "new",
+            "status": "waiting_payment",
             "price": amount,
             "package_label": package_label,
             "server_tier_label": server_tier_label,
@@ -909,29 +1149,56 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
             "created_at": now_iso,
             "date": now_iso,
         })
-        print(f"✅ Публичная карточка {order_number} сохранена")
     except Exception as e:
-        print(f"⚠️ orders_public ошибка: {type(e).__name__}: {e}")
-        print(traceback.format_exc())
+        print(f"⚠️ orders_public ошибка: {e}")
 
-    # --- first_order = 0 (не критично) ---
+    # --- 4. first_order = 0 ---
     try:
         await asyncio.to_thread(_fb_user_set, user_id, {"first_order": 0})
     except Exception as e:
-        print(f"⚠️ Не удалось обновить first_order: {type(e).__name__}: {e}")
+        print(f"⚠️ Не удалось обновить first_order: {e}")
 
     await state.clear()
 
+    # --- 5. Если оплата не настроена — показываем сообщение об этом ---
+    if not pay_url:
+        await call.message.answer(
+            tw(
+                f"📋 <b>Заказ #{order_number} создан!</b>\n\n"
+                f"⚠️ Оплата сейчас недоступна — напиши в поддержку для оформления: @nilbots_support_bot\n\n"
+                f"💵 Сумма: <b>{amount}₽</b>{reason_str}{promo_note}"
+            ),
+            reply_markup=main_menu(), parse_mode="HTML"
+        )
+        return
+
+    # --- 6. Добавляем в polling ---
+    payment_tasks[order_number] = {
+        "payment_id": payment_id,
+        "user_id": user_id
+    }
+
+    # --- 7. Отправляем клиенту ссылку на оплату ---
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Оплатить заказ", url=pay_url)],
+        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check_pay_{order_number}")],
+        [InlineKeyboardButton(text="📋 Мой профиль", callback_data="profile")]
+    ])
+
     await call.message.answer(
         tw(
-            f"🎉 <b>Заказ #{order_number} успешно создан!</b>\n\n"
-            f"Я передал ваше ТЗ разработчику. В ближайшее время с вами свяжутся.\n\n"
-            f"📊 <b>Отслеживать статус заказа:</b>\n{SITE_URL}\n(номер: <b>{order_number}</b>){promo_note}"
+            f"📋 <b>Заказ #{order_number} создан!</b>\n\n"
+            f"💵 Сумма: <b>{amount}₽</b>{reason_str}\n\n"
+            f"⏳ <b>Важно:</b> после оплаты бот автоматически проверит платёж.\n"
+            f"⚠️ <b>Проверка занимает до 30 секунд</b> — пожалуйста, подожди.\n\n"
+            f"Нажми «💳 Оплатить заказ» и заверши оплату. Как только платёж подтвердится — "
+            f"я пришлю уведомление и передам ТЗ разработчику.{promo_note}"
         ),
-        reply_markup=main_menu(), parse_mode="HTML"
+        reply_markup=kb, parse_mode="HTML"
     )
 
-    plan_line = f"📦 План: {package_label}"
+    # --- 8. Уведомление админу о новом заказе (ещё не оплачен) ---
+    plan_line = f" План: {package_label}"
     if server_tier_label:
         plan_line += f"\n🖥 Тариф сервера: {server_tier_label}"
     if addons_label:
@@ -941,18 +1208,50 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         await bot.send_message(
             ADMIN_ID,
             tw(
-                f"🔥 <b>НОВЫЙ ЗАКАЗ #{order_number}</b>\n\n"
+                f"🆕 <b>НОВЫЙ ЗАКАЗ #{order_number} (ожидает оплаты)</b>\n\n"
                 f"👤 Клиент: {html.escape(user_contact)} (ID: {user_id})\n"
                 f"{html.escape(plan_line)}\n"
                 f"🛠 Услуга: {html.escape(service_name)}\n"
                 f"💬 ТЗ: {html.escape(details)}\n"
                 f"💵 Сумма: {amount}₽\n\n"
-                f"⚠️ Требуется связаться с клиентом!"
+                f" Ждём оплату..."
             ),
             parse_mode="HTML"
         )
     except Exception as e:
-        print(f"⚠️ Не удалось уведомить админа о заказе {order_number}: {type(e).__name__}: {e}")
+        print(f"️ Не удалось уведомить админа: {type(e).__name__}: {e}")
+
+# --- Ручная проверка оплаты ---
+@router.callback_query(F.data.startswith("check_pay_"))
+async def manual_check_payment(call: CallbackQuery):
+    order_number = call.data.replace("check_pay_", "")
+    await call.answer("⏳ Проверяю оплату...")
+
+    task_data = payment_tasks.get(order_number)
+    if not task_data:
+        # Проверяем в Firebase напрямую
+        _, order_data = await asyncio.to_thread(_fb_get_order_by_number, order_number)
+        if order_data and order_data.get("payment_status") == "paid":
+            await call.message.answer("✅ Этот заказ уже оплачен!")
+            return
+        await call.message.answer("⚠️ Платёж не найден. Если ты уже оплатил — напиши в поддержку.")
+        return
+
+    status = await check_rollypay_payment_status(task_data.get("payment_id"))
+    if status == "paid":
+        await confirm_order_payment(order_number, task_data)
+        payment_tasks.pop(order_number, None)
+        await call.message.answer("✅ Оплата подтверждена! Заказ принят в работу.")
+    elif status in ["canceled", "expired"]:
+        await cancel_order_payment(order_number, task_data)
+        payment_tasks.pop(order_number, None)
+        await call.message.answer("⚠️ Платёж отменён или истёк. Создай заказ заново.")
+    else:
+        await call.message.answer(
+            f" Оплата ещё не подтверждена. Статус: <b>{status or 'неизвестно'}</b>.\n\n"
+            f"Подожди ещё немного или нажми «🔄 Проверить оплату» через 30 секунд.",
+            parse_mode="HTML"
+        )
 
 # ============================================
 # ПРОФИЛЬ
@@ -1022,7 +1321,7 @@ async def read_chat(call: CallbackQuery):
     async with aiosqlite.connect("nil_bots.db") as db:
         cursor = await db.execute("SELECT text, is_user FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 15", (user_id,))
         msgs = await cursor.fetchall()
-    history = "\n".join([f"{'👤 Клиент' if m[1] else '👑 Вы'}: {html.escape(str(m[0]))}" for m in reversed(msgs)])
+    history = "\n".join([f"{'👤 Клиент' if m[1] else ' Вы'}: {html.escape(str(m[0]))}" for m in reversed(msgs)])
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Написать ответ", callback_data=f"reply_{user_id}")],
         [InlineKeyboardButton(text="🔙 К чатам", callback_data="admin_chats")]
@@ -1045,7 +1344,7 @@ async def admin_send_reply(message: Message, state: FSMContext):
         await state.clear()
         return
     try:
-        await bot.send_message(target_user_id, tw(f"👑 <b>Ответ от Nil Bots:</b>\n\n{html.escape(message.text)}"), parse_mode="HTML")
+        await bot.send_message(target_user_id, tw(f" <b>Ответ от Nil Bots:</b>\n\n{html.escape(message.text)}"), parse_mode="HTML")
         async with aiosqlite.connect("nil_bots.db") as db:
             await db.execute("INSERT INTO messages (user_id, text, is_user) VALUES (?, ?, 0)", (target_user_id, message.text))
             await db.commit()
@@ -1066,7 +1365,7 @@ async def cancel_state(message: Message, state: FSMContext):
 @router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast_start(call: CallbackQuery, state: FSMContext):
     if call.from_user.id != ADMIN_ID:
-        await call.answer("❌ Недоступно", show_alert=True)
+        await call.answer(" Недоступно", show_alert=True)
         return
     await call.answer()
     await state.clear()
@@ -1202,7 +1501,7 @@ async def promo_discount_input(message: Message, state: FSMContext):
         await message.answer("❌ Скидка от 1 до 100.")
         return
     await state.update_data(discount=discount)
-    await message.answer(tw("🔢 Введи количество активаций:"))
+    await message.answer(tw(" Введи количество активаций:"))
     await state.set_state(AddPromoState.waiting_for_uses)
 
 @router.message(AddPromoState.waiting_for_uses)
@@ -1213,7 +1512,7 @@ async def promo_uses_input(message: Message, state: FSMContext):
         await message.answer("❌ Введи целое число.")
         return
     if uses <= 0:
-        await message.answer("❌ Должно быть больше 0.")
+        await message.answer(" Должно быть больше 0.")
         return
     data = await state.get_data()
     try:
@@ -1254,9 +1553,14 @@ async def support_msg(message: Message, state: FSMContext):
 async def main():
     await init_db()
     print("🚀 Бот nil.bots запущен!")
-    print(f"👑 Admin ID: {ADMIN_ID}")
+    print(f" Admin ID: {ADMIN_ID}")
     print(f"💰 Цены: Бот={PRICE_BOT_ONLY}₽, Basic={PRICE_SERVER_BASIC}₽, Премиум=STOP LIST")
+    print(f" RollyPay: {'✅ подключён' if ROLLY_API_KEY else '⚠️ НЕ подключён (оплата недоступна)'}")
+
     start_settings_listener()
+    await restore_pending_payments()  # Восстанавливаем неоплаченные заказы
+    asyncio.create_task(payment_polling_task())  # Запускаем фоновую проверку
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
