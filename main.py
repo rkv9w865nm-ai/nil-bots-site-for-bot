@@ -44,6 +44,8 @@ ROLLY_API_KEY = os.environ.get("ROLLY_API_KEY", "")
 ROLLY_API_URL = os.environ.get("ROLLY_API_URL", "https://rollypay.io/api/v1")
 PAYMENT_CHECK_INTERVAL = 30  # секунд между проверками
 
+DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
+
 # ============================================
 # ПОЛНЫЕ ТЕКСТЫ ДОКУМЕНТОВ
 # ============================================
@@ -177,6 +179,18 @@ LIABILITY_TEXT = (
 )
 
 # ============================================
+# СОГЛАШЕНИЕ ПРИ ПЕРВОМ ЗАПУСКЕ
+# ============================================
+AGREEMENT_TEXT = (
+    "✨ <b>Добро пожаловать в Nil Bots!</b> ✨\n"
+    f"{DIVIDER}\n\n"
+    "Прежде чем продолжить, пожалуйста, ознакомься с документами ниже.\n\n"
+    "Нажимая «✅ Я согласен с условиями», ты подтверждаешь, что прочитал(а) "
+    "и принимаешь условия <b>Публичной оферты</b> и <b>Политики конфиденциальности</b>.\n\n"
+    "⚠️ Без согласия использование бота недоступно."
+)
+
+# ============================================
 # FIREBASE
 # ============================================
 firebase_key_json = os.environ.get("FIREBASE_KEY_JSON")
@@ -259,6 +273,8 @@ def _fb_user_ensure(user_id: int, username):
             "username": username,
             "birthday": None,
             "first_order": 1,
+            "agreed_terms": False,
+            "agreed_terms_at": None,
             "created_at": datetime.datetime.now().isoformat(),
         }
         ref.set(data)
@@ -672,10 +688,22 @@ def main_menu():
 
 def docs_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔒 Политика конфиденциальности", callback_data="doc_privacy")],
-        [InlineKeyboardButton(text="📄 Публичная оферта", callback_data="doc_offer")],
+        [InlineKeyboardButton(text="🔴 Политика конфиденциальности", callback_data="doc_privacy")],
+        [InlineKeyboardButton(text="🔴 Публичная оферта", callback_data="doc_offer")],
         [InlineKeyboardButton(text="⚠️ Ограничение ответственности", callback_data="docs_liability")],
         [InlineKeyboardButton(text=" В главное меню", callback_data="start_back_to_main")]
+    ])
+
+def agreement_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔴 Публичная оферта", callback_data="agree_view_offer")],
+        [InlineKeyboardButton(text="🔴 Политика конфиденциальности", callback_data="agree_view_privacy")],
+        [InlineKeyboardButton(text="✅ Я согласен с условиями", callback_data="agree_accept")]
+    ])
+
+def agreement_back_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Назад к соглашению", callback_data="agree_back")]
     ])
 
 def admin_menu():
@@ -694,7 +722,7 @@ def back_kb(callback_data: str):
 def addons_kb(selected: list):
     rows = []
     for key, addon in ADDONS.items():
-        mark = "✅" if key in selected else ""
+        mark = "✅" if key in selected else "▫️"
         rows.append([InlineKeyboardButton(
             text=f"{mark} {addon['label']} (+{addon['price']:.0f}₽)",
             callback_data=f"add_{key}"
@@ -728,24 +756,46 @@ def split_telegram_text(text: str, limit: int = 3900):
         rest = rest[cut:].lstrip()
     return chunks
 
-async def send_document_text(message: Message, text: str):
+async def send_document_text(message: Message, text: str, keyboard_fn=docs_kb):
     chunks = split_telegram_text(text)
     if chunks:
         chunks[-1] = tw(chunks[-1])
     for i, chunk in enumerate(chunks):
-        markup = docs_kb() if i == len(chunks) - 1 else None
+        markup = keyboard_fn() if i == len(chunks) - 1 else None
         await message.answer(chunk, parse_mode="HTML", reply_markup=markup)
 
 # ============================================
 # ЭКРАНЫ
 # ============================================
+async def show_main_menu(message, edit=False, maintenance_notice=False):
+    notice = ""
+    if maintenance_notice and MAINTENANCE["on"]:
+        notice = ("🚧 <b>Сейчас идут технические работы!</b>\n"
+                  "Некоторые функции могут работать нестабильно.\n\n")
+    text = (
+        notice +
+        "✨ <b>Nil Bots — создаём Telegram-ботов под ключ</b> ✨\n"
+        f"{DIVIDER}\n\n"
+        "🤖 Помогу тебе заказать идеального бота под любые задачи — "
+        "от простого помощника до бота с хостингом и доп. функциями.\n\n"
+        "👇 Выбери, что тебя интересует:"
+    )
+    if edit:
+        await message.edit_text(tw(text), reply_markup=main_menu(), parse_mode="HTML")
+    else:
+        await message.answer(tw(text), reply_markup=main_menu(), parse_mode="HTML")
+
 async def show_package_screen(message, state, edit=False):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 Только бот", callback_data="pkg_bot_only")],
         [InlineKeyboardButton(text="+ Бот + Сервер", callback_data="pkg_bot_server")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
     ])
-    text = "🛠 <b>Что именно вы хотите заказать?</b>"
+    text = (
+        "🛠 <b>Шаг 1 из 4 — Пакет услуг</b>\n"
+        f"{DIVIDER}\n\n"
+        "Что именно вы хотите заказать?"
+    )
     if edit:
         await message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
     else:
@@ -759,7 +809,8 @@ async def show_tiers_screen(message, state, edit=False):
         [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_package")]
     ])
     text = (
-        "🖥 <b>Выберите тариф хостинга:</b>\n\n"
+        "🖥 <b>Шаг 2 из 4 — Тариф хостинга</b>\n"
+        f"{DIVIDER}\n\n"
         f"⚡ <b>Базовый:</b> {PRICE_SERVER_BASIC:.0f}₽/мес\n"
         "🚀 <b>Премиум:</b> stop list — временно недоступен"
     )
@@ -774,8 +825,9 @@ async def show_addons_screen(message, state, edit=False):
     selected = data.get("addons", [])
     kb = addons_kb(selected)
     text = (
-        "🧩 <b>Дополнительные услуги (по желанию):</b>\n\n"
-        "Нажимай, чтобы добавить или убрать услугу.\n"
+        "🧩 <b>Шаг 3 из 4 — Дополнительные услуги</b>\n"
+        f"{DIVIDER}\n\n"
+        "Нажимай, чтобы добавить или убрать услугу (по желанию).\n"
         "Когда всё выберешь — жми «✅ Продолжить»."
     )
     if edit:
@@ -786,11 +838,15 @@ async def show_addons_screen(message, state, edit=False):
 
 async def show_details_prompt(message, state, edit=False):
     kb = back_kb("nav_back_from_details")
-    text = "📝 Отлично! Опиши подробно, какого бота ты хочешь:"
+    text = (
+        "📝 <b>Шаг 4 из 4 — Техническое задание</b>\n"
+        f"{DIVIDER}\n\n"
+        "Отлично! Опиши подробно, какого бота ты хочешь:"
+    )
     if edit:
-        await message.edit_text(tw(text), reply_markup=kb)
+        await message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
     else:
-        await message.answer(tw(text), reply_markup=kb)
+        await message.answer(tw(text), reply_markup=kb, parse_mode="HTML")
     await state.set_state(OrderState.waiting_for_details)
 
 async def show_promo_question(message, state, edit=False):
@@ -799,7 +855,7 @@ async def show_promo_question(message, state, edit=False):
         [InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip_promo")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_details")]
     ])
-    text = "💬 <b>Есть ли у вас промокод?</b>"
+    text = f"💬 <b>Есть ли у вас промокод?</b>\n{DIVIDER}"
     if edit:
         await message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
     else:
@@ -812,19 +868,54 @@ async def show_promo_question(message, state, edit=False):
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    await ensure_user(message.from_user.id, message.from_user.username)
+    user = await ensure_user(message.from_user.id, message.from_user.username)
 
     if message.from_user.id == ADMIN_ID:
-        await message.answer(tw("👑 <b>Админ-панель:</b>"), reply_markup=admin_menu(), parse_mode="HTML")
-    else:
-        notice = ""
-        if MAINTENANCE["on"]:
-            notice = ("🚧 <b>Сейчас идут технические работы!</b>\n"
-                      "Некоторые функции могут работать нестабильно.\n\n")
         await message.answer(
-            tw(notice + "👋 <b>Привет!</b>\nЯ помогу тебе заказать идеального Telegram-бота."),
-            reply_markup=main_menu(), parse_mode="HTML"
+            tw(f"👑 <b>Админ-панель</b>\n{DIVIDER}"),
+            reply_markup=admin_menu(), parse_mode="HTML"
         )
+        return
+
+    if not user.get("agreed_terms"):
+        await message.answer(tw(AGREEMENT_TEXT), reply_markup=agreement_kb(), parse_mode="HTML")
+        return
+
+    await show_main_menu(message, maintenance_notice=True)
+
+# ============================================
+# СОГЛАШЕНИЕ (ПУБЛ. ОФЕРТА / ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ)
+# ============================================
+@router.callback_query(F.data == "agree_view_offer")
+async def agree_view_offer(call: CallbackQuery):
+    await call.answer()
+    await send_document_text(call.message, PUBLIC_OFFER, keyboard_fn=agreement_back_kb)
+
+@router.callback_query(F.data == "agree_view_privacy")
+async def agree_view_privacy(call: CallbackQuery):
+    await call.answer()
+    await send_document_text(call.message, PRIVACY_POLICY, keyboard_fn=agreement_back_kb)
+
+@router.callback_query(F.data == "agree_back")
+async def agree_back(call: CallbackQuery):
+    await call.answer()
+    await call.message.answer(tw(AGREEMENT_TEXT), reply_markup=agreement_kb(), parse_mode="HTML")
+
+@router.callback_query(F.data == "agree_accept")
+async def agree_accept(call: CallbackQuery):
+    await call.answer("✅ Спасибо! Условия приняты.")
+    await asyncio.to_thread(_fb_user_set, call.from_user.id, {
+        "agreed_terms": True,
+        "agreed_terms_at": datetime.datetime.now().isoformat()
+    })
+    try:
+        await call.message.edit_text(
+            tw(f"✅ <b>Спасибо! Вы приняли условия соглашения.</b>\n{DIVIDER}"),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    await show_main_menu(call.message, maintenance_notice=True)
 
 # ============================================
 # ДОКУМЕНТАЦИЯ
@@ -833,7 +924,7 @@ async def cmd_start(message: Message, state: FSMContext):
 async def docs_handler(call: CallbackQuery):
     await call.answer()
     await call.message.edit_text(
-        tw("📄 <b>Документация</b>\n\nВыбери документ:"),
+        tw(f"📄 <b>Документация</b>\n{DIVIDER}\n\nВыбери документ:"),
         reply_markup=docs_kb(), parse_mode="HTML"
     )
 
@@ -898,8 +989,10 @@ async def nav_back_from_details(call: CallbackQuery, state: FSMContext):
 async def start_back_to_main(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await state.clear()
-    kb = admin_menu() if call.from_user.id == ADMIN_ID else main_menu()
-    await call.message.edit_text(tw("🏠 <b>Главное меню:</b>"), reply_markup=kb, parse_mode="HTML")
+    if call.from_user.id == ADMIN_ID:
+        await call.message.edit_text(tw(f"👑 <b>Админ-панель</b>\n{DIVIDER}"), reply_markup=admin_menu(), parse_mode="HTML")
+    else:
+        await show_main_menu(call.message, edit=True)
 
 # ============================================
 # ПРОЦЕСС ЗАКАЗА
@@ -1031,12 +1124,14 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None,
 
         await target.answer(
             tw(
-                f"📋 <b>Предварительный итог:</b>\n"
+                f"📋 <b>Предварительный итог заказа</b>\n"
+                f"{DIVIDER}\n"
                 f"📦 План: {html.escape(data.get('package_label', '🤖 Только бот'))}\n"
                 f"{tier_line}"
                 f"{addons_line}"
                 f"🛠 Услуга: {html.escape(data.get('service_name', 'Заказ'))}\n"
-                f" ТЗ: {html.escape(data.get('details', '(не указано)'))}\n\n"
+                f" ТЗ: {html.escape(data.get('details', '(не указано)'))}\n"
+                f"{DIVIDER}\n"
                 f"💰 <b>Итоговая цена: {final_price}₽</b>{reason_str}"
             ),
             reply_markup=kb, parse_mode="HTML"
@@ -1164,7 +1259,8 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     if not pay_url:
         await call.message.answer(
             tw(
-                f"📋 <b>Заказ #{order_number} создан!</b>\n\n"
+                f"📋 <b>Заказ #{order_number} создан!</b>\n"
+                f"{DIVIDER}\n\n"
                 f"⚠️ Оплата сейчас недоступна — напиши в поддержку для оформления: @nilbots_support_bot\n\n"
                 f"💵 Сумма: <b>{amount}₽</b>{reason_str}{promo_note}"
             ),
@@ -1187,7 +1283,8 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
 
     await call.message.answer(
         tw(
-            f"📋 <b>Заказ #{order_number} создан!</b>\n\n"
+            f"🎉 <b>Заказ #{order_number} создан!</b>\n"
+            f"{DIVIDER}\n\n"
             f"💵 Сумма: <b>{amount}₽</b>{reason_str}\n\n"
             f"⏳ <b>Важно:</b> после оплаты бот автоматически проверит платёж.\n"
             f"⚠️ <b>Проверка занимает до 30 секунд</b> — пожалуйста, подожди.\n\n"
@@ -1208,7 +1305,8 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         await bot.send_message(
             ADMIN_ID,
             tw(
-                f"🆕 <b>НОВЫЙ ЗАКАЗ #{order_number} (ожидает оплаты)</b>\n\n"
+                f"🆕 <b>НОВЫЙ ЗАКАЗ #{order_number} (ожидает оплаты)</b>\n"
+                f"{DIVIDER}\n"
                 f"👤 Клиент: {html.escape(user_contact)} (ID: {user_id})\n"
                 f"{html.escape(plan_line)}\n"
                 f"🛠 Услуга: {html.escape(service_name)}\n"
@@ -1266,7 +1364,12 @@ async def show_profile(call: CallbackQuery, state: FSMContext):
     username = (user or {}).get("username") or "Не указан"
     bday = (user or {}).get("birthday") or "Не указан"
 
-    text = f"👤 <b>Ваш профиль:</b>\n🆔 ID: <code>{user_id}</code>\n📱 Username: @{html.escape(str(username))}\n🎂 День рождения: {html.escape(str(bday))}\n\n"
+    text = (
+        f"👤 <b>Ваш профиль</b>\n{DIVIDER}\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"📱 Username: @{html.escape(str(username))}\n"
+        f"🎂 День рождения: {html.escape(str(bday))}\n\n"
+    )
 
     if orders:
         text += f"📦 <b>Ваши заказы ({len(orders)}):</b>\n"
@@ -1459,7 +1562,7 @@ async def admin_promos(call: CallbackQuery):
     await call.answer()
     promos = await asyncio.to_thread(_fb_promo_list)
 
-    text = "🎟 <b>Управление промокодами:</b>\n\n"
+    text = f"🎟 <b>Управление промокодами</b>\n{DIVIDER}\n\n"
     if promos:
         for code, discount, uses_left in promos:
             text += f"• <code>{html.escape(str(code))}</code> — {discount}% (осталось: {uses_left})\n"
