@@ -27,7 +27,7 @@ PRICE_SERVER_BASIC = float(os.environ.get("PRICE_SERVER_BASIC", "300"))
 
 ADDONS = {
     "support_bot": {
-        "label": " Отдельный бот тех. поддержки",
+        "label": "🛟 Отдельный бот тех. поддержки",
         "price": float(os.environ.get("PRICE_ADDON_SUPPORT", "99")),
     },
     "priority": {
@@ -42,12 +42,10 @@ SUPPORT_URL = "https://t.me/nilbots_support_bot"
 # RollyPay
 ROLLY_API_KEY = os.environ.get("ROLLY_API_KEY", "")
 ROLLY_API_URL = os.environ.get("ROLLY_API_URL", "https://rollypay.io/api/v1")
-PAYMENT_CHECK_INTERVAL = 30  # секунд между проверками
-
-DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
+PAYMENT_CHECK_INTERVAL = 30
 
 # ============================================
-# ПОЛНЫЕ ТЕКСТЫ ДОКУМЕНТОВ
+# ТЕКСТЫ ДОКУМЕНТОВ
 # ============================================
 PRIVACY_POLICY = """\
 🔒 <b>ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ</b>
@@ -165,7 +163,7 @@ PUBLIC_OFFER = """\
 
 
 LIABILITY_TEXT = (
-    "⚠️ <b>Ограничение ответственности и особые условия</b>\n\n"
+    "️ <b>Ограничение ответственности и особые условия</b>\n\n"
     "1. <b>Ограничение ответственности:</b> Исполнитель не несёт ответственности за "
     "блокировку бота Telegram, изменения в API сторонних сервисов, упущенную выгоду Заказчика.\n\n"
     "2. <b>Законность использования:</b> Заказчик несёт единоличную ответственность за "
@@ -176,18 +174,6 @@ LIABILITY_TEXT = (
     "так как результат имеет индивидуально-определённые свойства.\n\n"
     "5. <b>Расторжение:</b> Исполнитель вправе расторгнуть договор в одностороннем порядке "
     "при использовании бота для спама, мошенничества или иной незаконной деятельности."
-)
-
-# ============================================
-# СОГЛАШЕНИЕ ПРИ ПЕРВОМ ЗАПУСКЕ
-# ============================================
-AGREEMENT_TEXT = (
-    "✨ <b>Добро пожаловать в Nil Bots!</b> ✨\n"
-    f"{DIVIDER}\n\n"
-    "Прежде чем продолжить, пожалуйста, ознакомься с документами ниже.\n\n"
-    "Нажимая «✅ Я согласен с условиями», ты подтверждаешь, что прочитал(а) "
-    "и принимаешь условия <b>Публичной оферты</b> и <b>Политики конфиденциальности</b>.\n\n"
-    "⚠️ Без согласия использование бота недоступно."
 )
 
 # ============================================
@@ -273,8 +259,6 @@ def _fb_user_ensure(user_id: int, username):
             "username": username,
             "birthday": None,
             "first_order": 1,
-            "agreed_terms": False,
-            "agreed_terms_at": None,
             "created_at": datetime.datetime.now().isoformat(),
         }
         ref.set(data)
@@ -301,7 +285,6 @@ def _fb_orders_of(user_id: int):
     return out
 
 def _fb_get_order_by_number(number: str):
-    """Возвращает (doc_id, data) заказа по номеру или (None, None)."""
     try:
         docs = firebase_db.collection("orders").where("number", "==", number).limit(1).stream()
         for d in docs:
@@ -319,12 +302,40 @@ def _mask_contact(contact: str) -> str:
     return c[:2] + "*" * max(len(c) - 4, 1) + c[-2:]
 
 # ============================================
-# ROLLYPAY ИНТЕГРАЦИЯ
+# УПРАВЛЕНИЕ НАЛИЧИЕМ (СТОП-ЛИСТ)
+# ============================================
+AVAILABILITY = {
+    "bot_only": True,
+    "bot_server": True,
+    "host_basic": True,
+    "host_premium": False,
+}
+
+def _fb_availability_listener(doc_snapshot, changes, read_time):
+    """Слушает документ availability/main в Firebase."""
+    global AVAILABILITY
+    try:
+        data = doc_snapshot.to_dict() if doc_snapshot.exists else {}
+        for key in AVAILABILITY:
+            if key in data:
+                AVAILABILITY[key] = bool(data[key])
+        print(f"📦 Наличие обновлено: {AVAILABILITY}")
+    except Exception as e:
+        print(f"⚠️ Ошибка в availability_listener: {e}")
+
+def start_availability_listener():
+    firebase_db.collection("availability").document("main").on_snapshot(_fb_availability_listener)
+    print("👂 Listener наличия запущен")
+
+def _fb_set_availability(key: str, value: bool):
+    firebase_db.collection("availability").document("main").set({key: value}, merge=True)
+
+# ============================================
+# ROLLYPAY
 # ============================================
 async def create_rollypay_payment(order_number: str, amount: float, description: str):
-    """Создаёт платёж в RollyPay. Возвращает (pay_url, payment_id) или (None, None)."""
     if not ROLLY_API_KEY:
-        print(" ROLLY_API_KEY не задан — оплата недоступна")
+        print("⚠️ ROLLY_API_KEY не задан — оплата недоступна")
         return None, None
 
     headers = {
@@ -359,7 +370,6 @@ async def create_rollypay_payment(order_number: str, amount: float, description:
         return None, None
 
 async def check_rollypay_payment_status(payment_id: str):
-    """Проверяет статус платежа. Возвращает статус или None."""
     if not ROLLY_API_KEY or not payment_id:
         return None
 
@@ -379,11 +389,9 @@ async def check_rollypay_payment_status(payment_id: str):
         print(f"⚠️ Ошибка проверки статуса {payment_id}: {e}")
         return None
 
-# Хранилище активных проверок оплат: {order_number: {"payment_id": ..., "user_id": ...}}
 payment_tasks = {}
 
 async def payment_polling_task():
-    """Фоновая задача: проверяет статусы оплат каждые PAYMENT_CHECK_INTERVAL секунд."""
     print(f"🔄 Запущена фоновая проверка оплат (интервал {PAYMENT_CHECK_INTERVAL}с)")
     while True:
         try:
@@ -403,7 +411,7 @@ async def payment_polling_task():
                     await confirm_order_payment(order_number, task_data)
                     payment_tasks.pop(order_number, None)
                 elif status in ["canceled", "expired"]:
-                    print(f"️ Заказ {order_number} — оплата {status}")
+                    print(f"⚠️ Заказ {order_number} — оплата {status}")
                     await cancel_order_payment(order_number, task_data)
                     payment_tasks.pop(order_number, None)
         except Exception as e:
@@ -411,23 +419,19 @@ async def payment_polling_task():
             print(traceback.format_exc())
 
 async def confirm_order_payment(order_number: str, task_data: dict):
-    """Подтверждает заказ после успешной оплаты."""
     try:
         doc_id, order_data = await asyncio.to_thread(_fb_get_order_by_number, order_number)
         if not order_data:
-            print(f"⚠️ Заказ {order_number} не найден при подтверждении")
             return
 
         user_id = order_data.get("user_id")
 
-        # Обновляем заказ
         firebase_db.collection("orders").document(doc_id).update({
             "status": "new",
             "payment_status": "paid",
             "paid_at": datetime.datetime.now().isoformat()
         })
 
-        # Обновляем публичную версию
         try:
             firebase_db.collection("orders_public").document(order_number).update({
                 "status": "new"
@@ -435,29 +439,27 @@ async def confirm_order_payment(order_number: str, task_data: dict):
         except Exception as e:
             print(f"⚠️ orders_public ошибка: {e}")
 
-        # Уведомляем клиента
         if user_id:
             try:
                 await bot.send_message(
                     user_id,
                     f"✅ <b>Заказ #{order_number} оплачен!</b>\n\n"
                     f"💵 Сумма: {order_data.get('price', 0)}₽\n"
-                    f" Статус: <b>Новый</b> (принят в работу)\n\n"
+                    f"📊 Статус: <b>Новый</b> (принят в работу)\n\n"
                     f"Я передал ТЗ разработчику. В ближайшее время с вами свяжутся!\n\n"
-                    f"📊 Отслеживать статус: {SITE_URL}",
+                    f"🌐 Отслеживать статус: {SITE_URL}",
                     parse_mode="HTML"
                 )
             except Exception as e:
                 print(f"⚠️ Не удалось уведомить клиента {user_id}: {e}")
 
-        # Уведомляем админа
         try:
             await bot.send_message(
                 ADMIN_ID,
                 f"💰 <b>Заказ #{order_number} ОПЛАЧЕН!</b>\n\n"
-                f" Клиент: {order_data.get('client', '—')}\n"
-                f" Сумма: {order_data.get('price', 0)}₽\n"
-                f" Услуга: {order_data.get('service', '—')}\n\n"
+                f"👤 Клиент: {order_data.get('client', '—')}\n"
+                f"💵 Сумма: {order_data.get('price', 0)}₽\n"
+                f"🛠 Услуга: {order_data.get('service', '—')}\n\n"
                 f"✅ Можно начинать работу!",
                 parse_mode="HTML"
             )
@@ -471,7 +473,6 @@ async def confirm_order_payment(order_number: str, task_data: dict):
         print(traceback.format_exc())
 
 async def cancel_order_payment(order_number: str, task_data: dict):
-    """Отменяет заказ если оплата не прошла."""
     try:
         doc_id, order_data = await asyncio.to_thread(_fb_get_order_by_number, order_number)
         if not order_data:
@@ -479,7 +480,6 @@ async def cancel_order_payment(order_number: str, task_data: dict):
 
         user_id = order_data.get("user_id")
 
-        # Помечаем заказ как неоплаченный
         if doc_id:
             firebase_db.collection("orders").document(doc_id).update({
                 "status": "cancelled",
@@ -504,7 +504,6 @@ async def cancel_order_payment(order_number: str, task_data: dict):
         print(f"❌ Ошибка отмены заказа {order_number}: {e}")
 
 async def restore_pending_payments():
-    """При старте бота восстанавливает polling для неоплаченных заказов."""
     try:
         docs = firebase_db.collection("orders").where("status", "==", "waiting_payment").stream()
         count = 0
@@ -525,15 +524,100 @@ async def restore_pending_payments():
         print(f"⚠️ Ошибка восстановления оплат: {e}")
 
 # ============================================
+# УВЕДОМЛЕНИЯ О СМЕНЕ СТАТУСА ЗАКАЗА
+# ============================================
+STATUS_NAMES = {
+    "new": "🟡 Новый",
+    "working": "🔵 В работе",
+    "done": "🟢 Готов",
+    "closed": "⚫ Закрыт",
+    "cancelled": "🔴 Отменён",
+    "waiting_payment": "⏳ Ожидает оплаты",
+}
+
+def _fb_orders_listener(doc_snapshot, changes, read_time):
+    """Слушает изменения в коллекции orders и отправляет уведомления клиентам."""
+    try:
+        for change in changes:
+            if change.type.name != "MODIFIED":
+                continue
+            
+            doc = change.document
+            data = doc.to_dict() or {}
+            order_number = data.get("number")
+            new_status = data.get("status")
+            user_id = data.get("user_id")
+            price = data.get("price", 0)
+            
+            if not order_number or not user_id or not new_status:
+                continue
+            
+            # Проверяем, изменился ли статус
+            previous_data = change.document_snapshot.to_dict() if change.document_snapshot.exists else {}
+            old_status = previous_data.get("status") if previous_data else None
+            
+            if old_status == new_status:
+                continue
+            
+            status_name = STATUS_NAMES.get(new_status, new_status)
+            
+            # Формируем сообщение в зависимости от статуса
+            if new_status == "working":
+                msg = (
+                    f"🔵 <b>Заказ #{order_number} — в работе!</b>\n\n"
+                    f"Разработчик приступил к выполнению вашего заказа.\n"
+                    f" Сумма: {price}₽\n\n"
+                    f"🌐 Отслеживать статус: {SITE_URL}"
+                )
+            elif new_status == "done":
+                msg = (
+                    f"🟢 <b>Заказ #{order_number} готов!</b>\n\n"
+                    f"Ваш заказ выполнен. Свяжитесь с нами для получения результата.\n"
+                    f" Сумма: {price}₽\n\n"
+                    f"🌐 Отслеживать статус: {SITE_URL}"
+                )
+            elif new_status == "closed":
+                msg = (
+                    f"⚫ <b>Заказ #{order_number} закрыт</b>\n\n"
+                    f"Заказ успешно завершён. Спасибо за обращение!\n\n"
+                    f"Если у вас есть вопросы — напишите в поддержку: @nilbots_support_bot"
+                )
+            elif new_status == "cancelled":
+                msg = (
+                    f"🔴 <b>Заказ #{order_number} отменён</b>\n\n"
+                    f"Если это ошибка или у вас есть вопросы — напишите в поддержку: @nilbots_support_bot"
+                )
+            else:
+                continue
+            
+            # Отправляем уведомление
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    bot.send_message(user_id, msg, parse_mode="HTML"),
+                    MAIN_LOOP
+                )
+                print(f"📩 Уведомление отправлено клиенту {user_id} о заказе {order_number}: {new_status}")
+            except Exception as e:
+                print(f"⚠️ Не удалось отправить уведомление клиенту {user_id}: {e}")
+                
+    except Exception as e:
+        print(f"⚠️ Ошибка в orders_listener: {e}")
+        print(traceback.format_exc())
+
+def start_orders_listener():
+    firebase_db.collection("orders").on_snapshot(_fb_orders_listener)
+    print("👂 Listener заказов запущен (уведомления о смене статуса)")
+
+# ============================================
 # ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК
 # ============================================
 @router.errors()
 async def on_handler_error(event: ErrorEvent):
-    print(f" ХЕНДЛЕР УПАЛ: {type(event.exception).__name__}: {event.exception}")
+    print(f"🔥 ХЕНДЛЕР УПАЛ: {type(event.exception).__name__}: {event.exception}")
     print(traceback.format_exc())
     try:
         if event.update.message:
-            await event.update.message.answer("⚠️ Произошла ошибка. Попробуй ещё раз или нажми /start.")
+            await event.update.message.answer("️ Произошла ошибка. Попробуй ещё раз или нажми /start.")
         elif event.update.callback_query:
             await event.update.callback_query.answer()
             await event.update.callback_query.message.answer(
@@ -551,7 +635,7 @@ MAIN_LOOP = None
 
 def tw(text: str) -> str:
     if MAINTENANCE["on"]:
-        return f"{text}\n\n🚧 Технические работы!"
+        return f"{text}\n\n Технические работы!"
     return text
 
 async def broadcast_maintenance():
@@ -570,11 +654,11 @@ async def broadcast_maintenance():
         except Exception:
             pass
         await asyncio.sleep(0.05)
-    print(f" Оповещение о тех. работах: {sent}/{len(user_ids)}")
+    print(f"📢 Оповещение о тех. работах: {sent}/{len(user_ids)}")
 
-def _settings_listener(snapshot, changes, read_time):
+def _settings_listener(doc_snapshot, changes, read_time):
     try:
-        data = snapshot.to_dict() if snapshot.exists else {}
+        data = doc_snapshot.to_dict() if doc_snapshot.exists else {}
         on = bool((data or {}).get("maintenance", False))
         prev = MAINTENANCE["on"]
         MAINTENANCE["on"] = on
@@ -588,7 +672,7 @@ def start_settings_listener():
     global MAIN_LOOP
     MAIN_LOOP = asyncio.get_event_loop()
     firebase_db.collection("settings").document("main").on_snapshot(_settings_listener)
-    print(" Listener тех. работ запущен")
+    print("👂 Listener тех. работ запущен")
 
 # ============================================
 # СОСТОЯНИЯ
@@ -604,9 +688,6 @@ class OrderState(StatesGroup):
 class SetBdayState(StatesGroup):
     waiting_for_bday = State()
 
-class AdminReplyState(StatesGroup):
-    waiting_for_reply = State()
-
 class AddPromoState(StatesGroup):
     waiting_for_code = State()
     waiting_for_discount = State()
@@ -616,13 +697,14 @@ class BroadcastState(StatesGroup):
     waiting_text = State()
     confirming = State()
 
+class AvailabilityState(StatesGroup):
+    choosing_item = State()
+
 # ============================================
-# БАЗА ДАННЫХ (SQLite — только чаты админа)
+# БАЗА ДАННЫХ
 # ============================================
 async def init_db():
     async with aiosqlite.connect("nil_bots.db") as db:
-        await db.execute("""CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, text TEXT, is_user INTEGER)""")
         await db.commit()
 
 async def generate_order_number():
@@ -633,7 +715,7 @@ async def generate_order_number():
     return f"NB-{int(datetime.datetime.now().timestamp()) % 1000000}"
 
 # ============================================
-# РАСЧЁТ ЦЕНЫ (потолок 100%)
+# РАСЧЁТ ЦЕНЫ
 # ============================================
 async def calculate_price(base_price: float, user_id: int, promo_discount: int = 0, promo_code: str = None):
     user = await get_user(user_id)
@@ -668,9 +750,9 @@ def get_status_emoji(status: str) -> str:
     return {
         "new": "🟡 Создан",
         "waiting_payment": "⏳ Ожидает оплаты",
-        "working": " В работе",
-        "done": " Готов",
-        "cancelled": " Отменен",
+        "working": "🔵 В работе",
+        "done": "🟢 Готов",
+        "cancelled": "🔴 Отменен",
         "closed": "⚫ Закрыт",
     }.get(status, "❓ Неизвестно")
 
@@ -681,34 +763,22 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛠 Заказать разработку", callback_data="order_start")],
         [InlineKeyboardButton(text="👤 Мой профиль и заказы", callback_data="profile")],
-        [InlineKeyboardButton(text=" Документация", callback_data="docs")],
+        [InlineKeyboardButton(text="📄 Документация", callback_data="docs")],
         [InlineKeyboardButton(text="🌐 Наш сайт", url=SITE_URL)],
         [InlineKeyboardButton(text="💬 Техподдержка", url=SUPPORT_URL)]
     ])
 
 def docs_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔴 Политика конфиденциальности", callback_data="doc_privacy")],
-        [InlineKeyboardButton(text="🔴 Публичная оферта", callback_data="doc_offer")],
+        [InlineKeyboardButton(text=" Политика конфиденциальности", callback_data="doc_privacy")],
+        [InlineKeyboardButton(text=" Публичная оферта", callback_data="doc_offer")],
         [InlineKeyboardButton(text="⚠️ Ограничение ответственности", callback_data="docs_liability")],
-        [InlineKeyboardButton(text=" В главное меню", callback_data="start_back_to_main")]
-    ])
-
-def agreement_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔴 Публичная оферта", callback_data="agree_view_offer")],
-        [InlineKeyboardButton(text="🔴 Политика конфиденциальности", callback_data="agree_view_privacy")],
-        [InlineKeyboardButton(text="✅ Я согласен с условиями", callback_data="agree_accept")]
-    ])
-
-def agreement_back_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад к соглашению", callback_data="agree_back")]
+        [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
     ])
 
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Чаты с клиентами", callback_data="admin_chats")],
+        [InlineKeyboardButton(text="📦 Наличие (стоп-лист)", callback_data="admin_availability")],
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="🎟 Промокоды", callback_data="admin_promos")],
         [InlineKeyboardButton(text="📄 Документация", callback_data="docs")]
@@ -722,13 +792,13 @@ def back_kb(callback_data: str):
 def addons_kb(selected: list):
     rows = []
     for key, addon in ADDONS.items():
-        mark = "✅" if key in selected else "▫️"
+        mark = "✅" if key in selected else "⬜"
         rows.append([InlineKeyboardButton(
             text=f"{mark} {addon['label']} (+{addon['price']:.0f}₽)",
             callback_data=f"add_{key}"
         )])
     rows.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="addons_done")])
-    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="nav_back_from_addons")])
+    rows.append([InlineKeyboardButton(text=" Назад", callback_data="nav_back_from_addons")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def promo_prompt_kb():
@@ -736,6 +806,24 @@ def promo_prompt_kb():
         [InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip_promo")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_details")]
     ])
+
+def availability_kb():
+    """Клавиатура управления наличием."""
+    rows = []
+    items = [
+        ("bot_only", "🤖 Только бот", AVAILABILITY.get("bot_only", True)),
+        ("bot_server", "🤖+ Бот + Сервер", AVAILABILITY.get("bot_server", True)),
+        ("host_basic", "⚡ Базовый хост", AVAILABILITY.get("host_basic", True)),
+        ("host_premium", "🚀 Премиум хост", AVAILABILITY.get("host_premium", False)),
+    ]
+    for key, label, available in items:
+        mark = "✅" if available else "❌"
+        rows.append([InlineKeyboardButton(
+            text=f"{mark} {label}",
+            callback_data=f"avail_toggle_{key}"
+        )])
+    rows.append([InlineKeyboardButton(text="🔙 В админку", callback_data="start_back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 # ============================================
 # РАЗБИВКА ДЛИННЫХ СООБЩЕНИЙ
@@ -756,46 +844,27 @@ def split_telegram_text(text: str, limit: int = 3900):
         rest = rest[cut:].lstrip()
     return chunks
 
-async def send_document_text(message: Message, text: str, keyboard_fn=docs_kb):
+async def send_document_text(message: Message, text: str):
     chunks = split_telegram_text(text)
     if chunks:
         chunks[-1] = tw(chunks[-1])
     for i, chunk in enumerate(chunks):
-        markup = keyboard_fn() if i == len(chunks) - 1 else None
+        markup = docs_kb() if i == len(chunks) - 1 else None
         await message.answer(chunk, parse_mode="HTML", reply_markup=markup)
 
 # ============================================
 # ЭКРАНЫ
 # ============================================
-async def show_main_menu(message, edit=False, maintenance_notice=False):
-    notice = ""
-    if maintenance_notice and MAINTENANCE["on"]:
-        notice = ("🚧 <b>Сейчас идут технические работы!</b>\n"
-                  "Некоторые функции могут работать нестабильно.\n\n")
-    text = (
-        notice +
-        "✨ <b>Nil Bots — создаём Telegram-ботов под ключ</b> ✨\n"
-        f"{DIVIDER}\n\n"
-        "🤖 Помогу тебе заказать идеального бота под любые задачи — "
-        "от простого помощника до бота с хостингом и доп. функциями.\n\n"
-        "👇 Выбери, что тебя интересует:"
-    )
-    if edit:
-        await message.edit_text(tw(text), reply_markup=main_menu(), parse_mode="HTML")
-    else:
-        await message.answer(tw(text), reply_markup=main_menu(), parse_mode="HTML")
-
 async def show_package_screen(message, state, edit=False):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🤖 Только бот", callback_data="pkg_bot_only")],
-        [InlineKeyboardButton(text="+ Бот + Сервер", callback_data="pkg_bot_server")],
+        [InlineKeyboardButton(text=" Только бот", callback_data="pkg_bot_only")] if AVAILABILITY.get("bot_only", True) else [],
+        [InlineKeyboardButton(text="🤖+ Бот + Сервер", callback_data="pkg_bot_server")] if AVAILABILITY.get("bot_server", True) else [],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="start_back_to_main")]
     ])
-    text = (
-        "🛠 <b>Шаг 1 из 4 — Пакет услуг</b>\n"
-        f"{DIVIDER}\n\n"
-        "Что именно вы хотите заказать?"
-    )
+    # Убираем пустые строки
+    kb.inline_keyboard = [row for row in kb.inline_keyboard if row]
+    
+    text = "🛠 <b>Что именно вы хотите заказать?</b>"
     if edit:
         await message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
     else:
@@ -804,15 +873,16 @@ async def show_package_screen(message, state, edit=False):
 
 async def show_tiers_screen(message, state, edit=False):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"⚡ Базовый ({PRICE_SERVER_BASIC:.0f}₽/мес)", callback_data="srv_basic")],
-        [InlineKeyboardButton(text="🚫 Премиум — stop list", callback_data="srv_stop")],
+        [InlineKeyboardButton(text=f" Базовый ({PRICE_SERVER_BASIC:.0f}₽/мес)", callback_data="srv_basic")] if AVAILABILITY.get("host_basic", True) else [],
+        [InlineKeyboardButton(text="🚫 Премиум — stop list", callback_data="srv_stop")] if AVAILABILITY.get("host_premium", False) else [],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_package")]
     ])
+    kb.inline_keyboard = [row for row in kb.inline_keyboard if row]
+    
     text = (
-        "🖥 <b>Шаг 2 из 4 — Тариф хостинга</b>\n"
-        f"{DIVIDER}\n\n"
+        "🖥 <b>Выберите тариф хостинга:</b>\n\n"
         f"⚡ <b>Базовый:</b> {PRICE_SERVER_BASIC:.0f}₽/мес\n"
-        "🚀 <b>Премиум:</b> stop list — временно недоступен"
+        " <b>Премиум:</b> stop list — временно недоступен"
     )
     if edit:
         await message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
@@ -825,9 +895,8 @@ async def show_addons_screen(message, state, edit=False):
     selected = data.get("addons", [])
     kb = addons_kb(selected)
     text = (
-        "🧩 <b>Шаг 3 из 4 — Дополнительные услуги</b>\n"
-        f"{DIVIDER}\n\n"
-        "Нажимай, чтобы добавить или убрать услугу (по желанию).\n"
+        "🧩 <b>Дополнительные услуги (по желанию):</b>\n\n"
+        "Нажимай, чтобы добавить или убрать услугу.\n"
         "Когда всё выберешь — жми «✅ Продолжить»."
     )
     if edit:
@@ -838,15 +907,11 @@ async def show_addons_screen(message, state, edit=False):
 
 async def show_details_prompt(message, state, edit=False):
     kb = back_kb("nav_back_from_details")
-    text = (
-        "📝 <b>Шаг 4 из 4 — Техническое задание</b>\n"
-        f"{DIVIDER}\n\n"
-        "Отлично! Опиши подробно, какого бота ты хочешь:"
-    )
+    text = "📝 Отлично! Опиши подробно, какого бота ты хочешь:"
     if edit:
-        await message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
+        await message.edit_text(tw(text), reply_markup=kb)
     else:
-        await message.answer(tw(text), reply_markup=kb, parse_mode="HTML")
+        await message.answer(tw(text), reply_markup=kb)
     await state.set_state(OrderState.waiting_for_details)
 
 async def show_promo_question(message, state, edit=False):
@@ -855,7 +920,7 @@ async def show_promo_question(message, state, edit=False):
         [InlineKeyboardButton(text="⏭ Пропустить", callback_data="skip_promo")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="nav_details")]
     ])
-    text = f"💬 <b>Есть ли у вас промокод?</b>\n{DIVIDER}"
+    text = "💬 <b>Есть ли у вас промокод?</b>"
     if edit:
         await message.edit_text(tw(text), reply_markup=kb, parse_mode="HTML")
     else:
@@ -868,54 +933,19 @@ async def show_promo_question(message, state, edit=False):
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    user = await ensure_user(message.from_user.id, message.from_user.username)
+    await ensure_user(message.from_user.id, message.from_user.username)
 
     if message.from_user.id == ADMIN_ID:
+        await message.answer(tw("👑 <b>Админ-панель:</b>"), reply_markup=admin_menu(), parse_mode="HTML")
+    else:
+        notice = ""
+        if MAINTENANCE["on"]:
+            notice = ("🚧 <b>Сейчас идут технические работы!</b>\n"
+                      "Некоторые функции могут работать нестабильно.\n\n")
         await message.answer(
-            tw(f"👑 <b>Админ-панель</b>\n{DIVIDER}"),
-            reply_markup=admin_menu(), parse_mode="HTML"
+            tw(notice + "👋 <b>Привет!</b>\nЯ помогу тебе заказать идеального Telegram-бота."),
+            reply_markup=main_menu(), parse_mode="HTML"
         )
-        return
-
-    if not user.get("agreed_terms"):
-        await message.answer(tw(AGREEMENT_TEXT), reply_markup=agreement_kb(), parse_mode="HTML")
-        return
-
-    await show_main_menu(message, maintenance_notice=True)
-
-# ============================================
-# СОГЛАШЕНИЕ (ПУБЛ. ОФЕРТА / ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ)
-# ============================================
-@router.callback_query(F.data == "agree_view_offer")
-async def agree_view_offer(call: CallbackQuery):
-    await call.answer()
-    await send_document_text(call.message, PUBLIC_OFFER, keyboard_fn=agreement_back_kb)
-
-@router.callback_query(F.data == "agree_view_privacy")
-async def agree_view_privacy(call: CallbackQuery):
-    await call.answer()
-    await send_document_text(call.message, PRIVACY_POLICY, keyboard_fn=agreement_back_kb)
-
-@router.callback_query(F.data == "agree_back")
-async def agree_back(call: CallbackQuery):
-    await call.answer()
-    await call.message.answer(tw(AGREEMENT_TEXT), reply_markup=agreement_kb(), parse_mode="HTML")
-
-@router.callback_query(F.data == "agree_accept")
-async def agree_accept(call: CallbackQuery):
-    await call.answer("✅ Спасибо! Условия приняты.")
-    await asyncio.to_thread(_fb_user_set, call.from_user.id, {
-        "agreed_terms": True,
-        "agreed_terms_at": datetime.datetime.now().isoformat()
-    })
-    try:
-        await call.message.edit_text(
-            tw(f"✅ <b>Спасибо! Вы приняли условия соглашения.</b>\n{DIVIDER}"),
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-    await show_main_menu(call.message, maintenance_notice=True)
 
 # ============================================
 # ДОКУМЕНТАЦИЯ
@@ -924,7 +954,7 @@ async def agree_accept(call: CallbackQuery):
 async def docs_handler(call: CallbackQuery):
     await call.answer()
     await call.message.edit_text(
-        tw(f"📄 <b>Документация</b>\n{DIVIDER}\n\nВыбери документ:"),
+        tw("📄 <b>Документация</b>\n\nВыбери документ:"),
         reply_markup=docs_kb(), parse_mode="HTML"
     )
 
@@ -989,10 +1019,8 @@ async def nav_back_from_details(call: CallbackQuery, state: FSMContext):
 async def start_back_to_main(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await state.clear()
-    if call.from_user.id == ADMIN_ID:
-        await call.message.edit_text(tw(f"👑 <b>Админ-панель</b>\n{DIVIDER}"), reply_markup=admin_menu(), parse_mode="HTML")
-    else:
-        await show_main_menu(call.message, edit=True)
+    kb = admin_menu() if call.from_user.id == ADMIN_ID else main_menu()
+    await call.message.edit_text(tw("🏠 <b>Главное меню:</b>"), reply_markup=kb, parse_mode="HTML")
 
 # ============================================
 # ПРОЦЕСС ЗАКАЗА
@@ -1005,9 +1033,12 @@ async def order_start(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "pkg_bot_only", OrderState.choosing_package)
 async def pkg_bot_only(call: CallbackQuery, state: FSMContext):
+    if not AVAILABILITY.get("bot_only", True):
+        await call.answer("❌ Этот комплект временно недоступен", show_alert=True)
+        return
     await call.answer()
     await state.update_data(
-        package="bot_only", package_label=" Только бот",
+        package="bot_only", package_label="🤖 Только бот",
         server_tier=None, server_tier_label=None,
         base_price=PRICE_BOT_ONLY, service_name="Разработка бота",
         addons=[], addons_price=0.0, addons_label=None
@@ -1016,6 +1047,9 @@ async def pkg_bot_only(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "pkg_bot_server", OrderState.choosing_package)
 async def pkg_bot_server(call: CallbackQuery, state: FSMContext):
+    if not AVAILABILITY.get("bot_server", True):
+        await call.answer("❌ Этот комплект временно недоступен", show_alert=True)
+        return
     await call.answer()
     await state.update_data(
         package="bot_server", package_label="🤖+ Бот + Сервер",
@@ -1028,6 +1062,9 @@ async def pkg_bot_server(call: CallbackQuery, state: FSMContext):
 async def process_server_tier(call: CallbackQuery, state: FSMContext):
     if call.data == "srv_stop":
         await call.answer("🚫 Премиум сейчас в stop list!", show_alert=True)
+        return
+    if call.data == "srv_basic" and not AVAILABILITY.get("host_basic", True):
+        await call.answer("❌ Базовый хостинг временно недоступен", show_alert=True)
         return
     await call.answer()
     data = await state.get_data()
@@ -1054,7 +1091,7 @@ async def toggle_addon(call: CallbackQuery, state: FSMContext):
         await call.answer("➖ Убрано")
     else:
         selected.append(key)
-        await call.answer("➕ Добавлено")
+        await call.answer(" Добавлено")
     await state.update_data(addons=selected)
     await call.message.edit_reply_markup(reply_markup=addons_kb(selected))
 
@@ -1120,25 +1157,23 @@ async def process_promo_logic(target, state: FSMContext, promo_code: str = None,
         ])
 
         addons_line = f"🧩 Доп. услуги: {html.escape(data.get('addons_label') or '')}\n" if data.get('addons_label') else ""
-        tier_line = f"🖥 Тариф: {html.escape(data.get('server_tier_label') or '')}\n" if data.get('server_tier_label') else ""
+        tier_line = f" Тариф: {html.escape(data.get('server_tier_label') or '')}\n" if data.get('server_tier_label') else ""
 
         await target.answer(
             tw(
-                f"📋 <b>Предварительный итог заказа</b>\n"
-                f"{DIVIDER}\n"
-                f"📦 План: {html.escape(data.get('package_label', '🤖 Только бот'))}\n"
+                f" <b>Предварительный итог:</b>\n"
+                f"📦 План: {html.escape(data.get('package_label', ' Только бот'))}\n"
                 f"{tier_line}"
                 f"{addons_line}"
                 f"🛠 Услуга: {html.escape(data.get('service_name', 'Заказ'))}\n"
-                f" ТЗ: {html.escape(data.get('details', '(не указано)'))}\n"
-                f"{DIVIDER}\n"
+                f"📝 ТЗ: {html.escape(data.get('details', '(не указано)'))}\n\n"
                 f"💰 <b>Итоговая цена: {final_price}₽</b>{reason_str}"
             ),
             reply_markup=kb, parse_mode="HTML"
         )
         await state.set_state(OrderState.confirming_order)
     except Exception as e:
-        print(f"❌ Ошибка в process_promo_logic: {type(e).__name__}: {e}")
+        print(f" Ошибка в process_promo_logic: {type(e).__name__}: {e}")
         print(traceback.format_exc())
         try:
             await target.answer("⚠️ Произошла ошибка. Нажми /start и попробуй ещё раз.")
@@ -1153,7 +1188,6 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     total_base = data.get('base_price', 0) + data.get('addons_price', 0)
     promo_code = data.get('promo_code')
 
-    # --- Промокод ---
     promo_discount = 0
     promo_note = ""
     if promo_code:
@@ -1176,7 +1210,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
 
     service_name = data.get('service_name', 'Заказ')
     details = data.get('details', '')
-    package_label = data.get('package_label', ' Только бот')
+    package_label = data.get('package_label', '🤖 Только бот')
     server_tier_label = data.get('server_tier_label')
     addons_label = data.get('addons_label')
     user_contact = f"@{call.from_user.username}" if call.from_user.username else f"ID: {user_id}"
@@ -1184,7 +1218,6 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     order_number = await generate_order_number()
     now_iso = datetime.datetime.now().isoformat()
 
-    # --- 1. Создаём заказ со статусом waiting_payment ---
     try:
         firebase_db.collection("orders").document(order_number).set({
             "number": order_number,
@@ -1216,14 +1249,12 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         )
         return
 
-    # --- 2. Создаём платёж в RollyPay ---
     pay_url, payment_id = await create_rollypay_payment(
         order_number=order_number,
         amount=amount,
         description=f"Заказ #{order_number} — {service_name}"
     )
 
-    # Сохраняем payment_id в заказе
     if payment_id:
         try:
             firebase_db.collection("orders").document(order_number).update({
@@ -1232,7 +1263,6 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         except Exception as e:
             print(f"⚠️ Не удалось сохранить payment_id: {e}")
 
-    # --- 3. Публичная карточка (пока со статусом waiting) ---
     try:
         firebase_db.collection("orders_public").document(order_number).set({
             "number": order_number,
@@ -1247,7 +1277,6 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
     except Exception as e:
         print(f"⚠️ orders_public ошибка: {e}")
 
-    # --- 4. first_order = 0 ---
     try:
         await asyncio.to_thread(_fb_user_set, user_id, {"first_order": 0})
     except Exception as e:
@@ -1255,12 +1284,10 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
 
     await state.clear()
 
-    # --- 5. Если оплата не настроена — показываем сообщение об этом ---
     if not pay_url:
         await call.message.answer(
             tw(
-                f"📋 <b>Заказ #{order_number} создан!</b>\n"
-                f"{DIVIDER}\n\n"
+                f"📋 <b>Заказ #{order_number} создан!</b>\n\n"
                 f"⚠️ Оплата сейчас недоступна — напиши в поддержку для оформления: @nilbots_support_bot\n\n"
                 f"💵 Сумма: <b>{amount}₽</b>{reason_str}{promo_note}"
             ),
@@ -1268,13 +1295,11 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         )
         return
 
-    # --- 6. Добавляем в polling ---
     payment_tasks[order_number] = {
         "payment_id": payment_id,
         "user_id": user_id
     }
 
-    # --- 7. Отправляем клиенту ссылку на оплату ---
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оплатить заказ", url=pay_url)],
         [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check_pay_{order_number}")],
@@ -1283,8 +1308,7 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
 
     await call.message.answer(
         tw(
-            f"🎉 <b>Заказ #{order_number} создан!</b>\n"
-            f"{DIVIDER}\n\n"
+            f"📋 <b>Заказ #{order_number} создан!</b>\n\n"
             f"💵 Сумма: <b>{amount}₽</b>{reason_str}\n\n"
             f"⏳ <b>Важно:</b> после оплаты бот автоматически проверит платёж.\n"
             f"⚠️ <b>Проверка занимает до 30 секунд</b> — пожалуйста, подожди.\n\n"
@@ -1294,32 +1318,29 @@ async def confirm_and_create_order(call: CallbackQuery, state: FSMContext):
         reply_markup=kb, parse_mode="HTML"
     )
 
-    # --- 8. Уведомление админу о новом заказе (ещё не оплачен) ---
-    plan_line = f" План: {package_label}"
+    plan_line = f"📦 План: {package_label}"
     if server_tier_label:
         plan_line += f"\n🖥 Тариф сервера: {server_tier_label}"
     if addons_label:
-        plan_line += f"\n🧩 Доп. услуги: {addons_label}"
+        plan_line += f"\n Доп. услуги: {addons_label}"
 
     try:
         await bot.send_message(
             ADMIN_ID,
             tw(
-                f"🆕 <b>НОВЫЙ ЗАКАЗ #{order_number} (ожидает оплаты)</b>\n"
-                f"{DIVIDER}\n"
+                f" <b>НОВЫЙ ЗАКАЗ #{order_number} (ожидает оплаты)</b>\n\n"
                 f"👤 Клиент: {html.escape(user_contact)} (ID: {user_id})\n"
                 f"{html.escape(plan_line)}\n"
                 f"🛠 Услуга: {html.escape(service_name)}\n"
                 f"💬 ТЗ: {html.escape(details)}\n"
                 f"💵 Сумма: {amount}₽\n\n"
-                f" Ждём оплату..."
+                f"⏳ Ждём оплату..."
             ),
             parse_mode="HTML"
         )
     except Exception as e:
-        print(f"️ Не удалось уведомить админа: {type(e).__name__}: {e}")
+        print(f"⚠️ Не удалось уведомить админа: {type(e).__name__}: {e}")
 
-# --- Ручная проверка оплаты ---
 @router.callback_query(F.data.startswith("check_pay_"))
 async def manual_check_payment(call: CallbackQuery):
     order_number = call.data.replace("check_pay_", "")
@@ -1327,7 +1348,6 @@ async def manual_check_payment(call: CallbackQuery):
 
     task_data = payment_tasks.get(order_number)
     if not task_data:
-        # Проверяем в Firebase напрямую
         _, order_data = await asyncio.to_thread(_fb_get_order_by_number, order_number)
         if order_data and order_data.get("payment_status") == "paid":
             await call.message.answer("✅ Этот заказ уже оплачен!")
@@ -1343,10 +1363,10 @@ async def manual_check_payment(call: CallbackQuery):
     elif status in ["canceled", "expired"]:
         await cancel_order_payment(order_number, task_data)
         payment_tasks.pop(order_number, None)
-        await call.message.answer("⚠️ Платёж отменён или истёк. Создай заказ заново.")
+        await call.message.answer("️ Платёж отменён или истёк. Создай заказ заново.")
     else:
         await call.message.answer(
-            f" Оплата ещё не подтверждена. Статус: <b>{status or 'неизвестно'}</b>.\n\n"
+            f"⏳ Оплата ещё не подтверждена. Статус: <b>{status or 'неизвестно'}</b>.\n\n"
             f"Подожди ещё немного или нажми «🔄 Проверить оплату» через 30 секунд.",
             parse_mode="HTML"
         )
@@ -1364,12 +1384,7 @@ async def show_profile(call: CallbackQuery, state: FSMContext):
     username = (user or {}).get("username") or "Не указан"
     bday = (user or {}).get("birthday") or "Не указан"
 
-    text = (
-        f"👤 <b>Ваш профиль</b>\n{DIVIDER}\n"
-        f"🆔 ID: <code>{user_id}</code>\n"
-        f"📱 Username: @{html.escape(str(username))}\n"
-        f"🎂 День рождения: {html.escape(str(bday))}\n\n"
-    )
+    text = f"👤 <b>Ваш профиль:</b>\n🆔 ID: <code>{user_id}</code>\n📱 Username: @{html.escape(str(username))}\n🎂 День рождения: {html.escape(str(bday))}\n\n"
 
     if orders:
         text += f"📦 <b>Ваши заказы ({len(orders)}):</b>\n"
@@ -1403,64 +1418,62 @@ async def save_bday(message: Message, state: FSMContext):
     await message.answer(tw("✅ День рождения сохранён!"), reply_markup=main_menu())
 
 # ============================================
-# АДМИНКА: ЧАТЫ
+# АДМИНКА: УПРАВЛЕНИЕ НАЛИЧИЕМ
 # ============================================
-@router.callback_query(F.data == "admin_chats")
-async def admin_chats(call: CallbackQuery):
-    await call.answer()
-    async with aiosqlite.connect("nil_bots.db") as db:
-        cursor = await db.execute("SELECT DISTINCT user_id FROM messages")
-        users = await cursor.fetchall()
-    if not users:
-        return await call.message.edit_text(tw("💬 Диалогов пока нет."), reply_markup=back_kb("start_back_to_main"))
-    kb = [[InlineKeyboardButton(text=f"👤 {u[0]}", callback_data=f"chat_{u[0]}")] for u in users]
-    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="start_back_to_main")])
-    await call.message.edit_text(tw("💬 <b>Выберите пользователя:</b>"), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-
-@router.callback_query(F.data.startswith("chat_"))
-async def read_chat(call: CallbackQuery):
-    await call.answer()
-    user_id = int(call.data.split("_")[1])
-    async with aiosqlite.connect("nil_bots.db") as db:
-        cursor = await db.execute("SELECT text, is_user FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 15", (user_id,))
-        msgs = await cursor.fetchall()
-    history = "\n".join([f"{'👤 Клиент' if m[1] else ' Вы'}: {html.escape(str(m[0]))}" for m in reversed(msgs)])
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Написать ответ", callback_data=f"reply_{user_id}")],
-        [InlineKeyboardButton(text="🔙 К чатам", callback_data="admin_chats")]
-    ])
-    await call.message.edit_text(tw(f"💬 <b>Чат с {user_id}:</b>\n\n{history}"), reply_markup=kb, parse_mode="HTML")
-
-@router.callback_query(F.data.startswith("reply_"))
-async def start_admin_reply(call: CallbackQuery, state: FSMContext):
-    await call.answer()
-    user_id = int(call.data.split("_")[1])
-    await state.update_data(target_user_id=user_id)
-    await state.set_state(AdminReplyState.waiting_for_reply)
-    await call.message.edit_text(tw(f"✏️ Введи ответ для {user_id}:\n(или /cancel)"), reply_markup=back_kb("admin_chats"))
-
-@router.message(AdminReplyState.waiting_for_reply)
-async def admin_send_reply(message: Message, state: FSMContext):
-    data = await state.get_data()
-    target_user_id = data.get('target_user_id')
-    if not target_user_id:
-        await state.clear()
+@router.callback_query(F.data == "admin_availability")
+async def admin_availability(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("❌ Недоступно", show_alert=True)
         return
-    try:
-        await bot.send_message(target_user_id, tw(f" <b>Ответ от Nil Bots:</b>\n\n{html.escape(message.text)}"), parse_mode="HTML")
-        async with aiosqlite.connect("nil_bots.db") as db:
-            await db.execute("INSERT INTO messages (user_id, text, is_user) VALUES (?, ?, 0)", (target_user_id, message.text))
-            await db.commit()
-        await message.answer(tw(f"✅ Отправлено пользователю {target_user_id}."), reply_markup=admin_menu())
-    except Exception as e:
-        await message.answer(f"❌ Ошибка отправки: {e}")
-    await state.clear()
+    await call.answer()
+    
+    status_text = "📦 <b>Управление наличием:</b>\n\n"
+    for key, label in [
+        ("bot_only", "🤖 Только бот"),
+        ("bot_server", "🤖+ Бот + Сервер"),
+        ("host_basic", " Базовый хостинг"),
+        ("host_premium", "🚀 Премиум хостинг"),
+    ]:
+        available = AVAILABILITY.get(key, True)
+        status = "✅ Доступно" if available else "❌ В стоп-листе"
+        status_text += f"• {label}: {status}\n"
+    
+    status_text += "\nНажми на позицию, чтобы переключить."
+    
+    await call.message.edit_text(
+        tw(status_text),
+        reply_markup=availability_kb(),
+        parse_mode="HTML"
+    )
+    await call.message.answer(
+        "ℹ️ Изменения применяются мгновенно и влияют на сайт и бота.",
+        reply_markup=back_kb("admin_availability")
+    )
 
-@router.message(Command("cancel"))
-async def cancel_state(message: Message, state: FSMContext):
-    await state.clear()
-    kb = admin_menu() if message.from_user.id == ADMIN_ID else main_menu()
-    await message.answer(tw("❌ Действие отменено."), reply_markup=kb)
+@router.callback_query(F.data.startswith("avail_toggle_"))
+async def toggle_availability(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("❌ Недоступно", show_alert=True)
+        return
+    
+    key = call.data.replace("avail_toggle_", "")
+    if key not in AVAILABILITY:
+        await call.answer("❌ Неизвестная позиция")
+        return
+    
+    new_value = not AVAILABILITY.get(key, True)
+    AVAILABILITY[key] = new_value
+    
+    try:
+        await asyncio.to_thread(_fb_set_availability, key, new_value)
+        status = "✅ Включено" if new_value else "❌ Отключено"
+        await call.answer(f"{status}")
+        
+        # Обновляем экран
+        await admin_availability(call)
+    except Exception as e:
+        await call.answer(f"❌ Ошибка: {e}")
+        print(f"❌ Ошибка обновления наличия: {e}")
 
 # ============================================
 # АДМИНКА: РАССЫЛКА
@@ -1468,13 +1481,13 @@ async def cancel_state(message: Message, state: FSMContext):
 @router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast_start(call: CallbackQuery, state: FSMContext):
     if call.from_user.id != ADMIN_ID:
-        await call.answer(" Недоступно", show_alert=True)
+        await call.answer("❌ Недоступно", show_alert=True)
         return
     await call.answer()
     await state.clear()
     await call.message.edit_text(
         tw(
-            "📢 <b>Рассылка</b>\n\n"
+            " <b>Рассылка</b>\n\n"
             "Напиши текст сообщения — его получат все пользователи бота.\n\n"
             "Можно использовать разметку:\n"
             "<b>жирный</b>, <i>курсив</i>, <u>подчёркнутый</u>\n"
@@ -1530,7 +1543,7 @@ async def broadcast_confirm(call: CallbackQuery, state: FSMContext):
     await state.clear()
     users = await asyncio.to_thread(_fb_user_ids)
     total = len([u for u in users if u != ADMIN_ID])
-    await call.message.edit_text(tw(f"📢 Рассылка начата...\n👥 Получателей: {total}"), reply_markup=None)
+    await call.message.edit_text(tw(f"📢 Рассылка начата...\n Получателей: {total}"), reply_markup=None)
 
     sent = 0
     failed = 0
@@ -1549,7 +1562,7 @@ async def broadcast_confirm(call: CallbackQuery, state: FSMContext):
 
     await bot.send_message(
         ADMIN_ID,
-        f"✅ <b>Рассылка завершена!</b>\n\n📤 Отправлено: {sent}\n⚠️ Не доставлено: {failed}\n👥 Всего: {total}",
+        f"✅ <b>Рассылка завершена!</b>\n\n Отправлено: {sent}\n⚠️ Не доставлено: {failed}\n👥 Всего: {total}",
         parse_mode="HTML",
         reply_markup=admin_menu()
     )
@@ -1562,7 +1575,7 @@ async def admin_promos(call: CallbackQuery):
     await call.answer()
     promos = await asyncio.to_thread(_fb_promo_list)
 
-    text = f"🎟 <b>Управление промокодами</b>\n{DIVIDER}\n\n"
+    text = "🎟 <b>Управление промокодами:</b>\n\n"
     if promos:
         for code, discount, uses_left in promos:
             text += f"• <code>{html.escape(str(code))}</code> — {discount}% (осталось: {uses_left})\n"
@@ -1589,7 +1602,7 @@ async def promo_code_input(message: Message, state: FSMContext):
         return
     existing = await get_promo(code)
     await state.update_data(code=code)
-    note = "\n⚠️ Такой код уже существует — будет заменён." if existing else ""
+    note = "\n️ Такой код уже существует — будет заменён." if existing else ""
     await message.answer(tw(f"💰 Введи размер скидки в % (1-100):{note}"))
     await state.set_state(AddPromoState.waiting_for_discount)
 
@@ -1604,7 +1617,7 @@ async def promo_discount_input(message: Message, state: FSMContext):
         await message.answer("❌ Скидка от 1 до 100.")
         return
     await state.update_data(discount=discount)
-    await message.answer(tw(" Введи количество активаций:"))
+    await message.answer(tw("🔢 Введи количество активаций:"))
     await state.set_state(AddPromoState.waiting_for_uses)
 
 @router.message(AddPromoState.waiting_for_uses)
@@ -1615,7 +1628,7 @@ async def promo_uses_input(message: Message, state: FSMContext):
         await message.answer("❌ Введи целое число.")
         return
     if uses <= 0:
-        await message.answer(" Должно быть больше 0.")
+        await message.answer("❌ Должно быть больше 0.")
         return
     data = await state.get_data()
     try:
@@ -1640,10 +1653,6 @@ async def support_msg(message: Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state is not None:
         return
-    async with aiosqlite.connect("nil_bots.db") as db:
-        await db.execute("INSERT INTO messages (user_id, text, is_user) VALUES (?, ?, 1)",
-                         (message.from_user.id, message.text))
-        await db.commit()
     try:
         await bot.send_message(ADMIN_ID, f"💬 <b>Сообщение от {html.escape(message.from_user.full_name)}</b> (ID: {message.from_user.id}):\n\n{html.escape(message.text)}", parse_mode="HTML")
     except Exception:
@@ -1658,11 +1667,14 @@ async def main():
     print("🚀 Бот nil.bots запущен!")
     print(f" Admin ID: {ADMIN_ID}")
     print(f"💰 Цены: Бот={PRICE_BOT_ONLY}₽, Basic={PRICE_SERVER_BASIC}₽, Премиум=STOP LIST")
-    print(f" RollyPay: {'✅ подключён' if ROLLY_API_KEY else '⚠️ НЕ подключён (оплата недоступна)'}")
+    print(f"💳 RollyPay: {'✅ подключён' if ROLLY_API_KEY else '️ НЕ подключён (оплата недоступна)'}")
+    print(f"📦 Наличие: {AVAILABILITY}")
 
     start_settings_listener()
-    await restore_pending_payments()  # Восстанавливаем неоплаченные заказы
-    asyncio.create_task(payment_polling_task())  # Запускаем фоновую проверку
+    start_availability_listener()
+    start_orders_listener()
+    await restore_pending_payments()
+    asyncio.create_task(payment_polling_task())
 
     await dp.start_polling(bot)
 
